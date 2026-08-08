@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 import io
+import warnings
 from PIL import Image
 from rdkit import Chem
 from rdkit.Chem import Descriptors, rdMolDescriptors
@@ -56,8 +57,9 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # --- CONFIGURAZIONE MATPLOTLIB PER IL PDF ---
+warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib.font_manager")
 plt.rcParams['font.family'] = 'serif'
-plt.rcParams['font.serif'] = ['Palatino', 'Palatino Linotype', 'Book Antiqua', 'serif']
+plt.rcParams['font.serif'] = ['DejaVu Serif', 'Bitstream Vera Serif', 'Times New Roman', 'serif']
 
 # --- INIZIALIZZAZIONE STATO ---
 if 'ultimo_smiles' not in st.session_state:
