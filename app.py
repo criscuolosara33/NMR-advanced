@@ -11,9 +11,7 @@ from rdkit.Chem.Draw import rdMolDraw2D
 from matplotlib.backends.backend_pdf import PdfPages
 import pandas as pd
 
-st.set_page_config(page_title="Simulatore NMR", layout="wide")
-st.title("Simulatore Spettri NMR Avanzato 🧪")
-st.markdown("**Disegna la molecola, imposta i parametri e genera lo spettro con analisi stereochimica automatica.**")
+st.set_page_config(page_title="Simulatore NMR Avanzato", layout="wide", initial_sidebar_state="expanded")
 
 # --- FUNZIONI CHIMICHE ---
 def calcola_proprieta(mol):
@@ -55,9 +53,9 @@ def analizza_stereochimica(mol):
                 ch2_diastereotopici.append(str(atom.GetIdx() + 1))
         
         if ch2_diastereotopici:
-            commenti.append(f"🔍 **Protoni Diastereotopici Potenziali**: I gruppi CH₂ sugli atomi [{', '.join(ch2_diastereotopici)}] risentono dell'intorno chirale. I loro due protoni sono diastereotopici, non isocroni, e tenderanno a mostrare chemical shift distinti e accoppiamento geminale (sistema AB o ABX), che il simulatore locale approssimerà come un unico multipletto.")
+            commenti.append(f"🔍 **Protoni Diastereotopici**: I gruppi CH₂ sugli atomi [{', '.join(ch2_diastereotopici)}] risentono dell'intorno chirale. I due protoni non sono isocroni e tenderanno a mostrare $\delta$ distinti con accoppiamento geminale.")
     else:
-        commenti.append("✅ **Molecola Achirale**: Nessun centro stereogenico rilevato. I protoni dei gruppi CH₂ simmetrici sono **enantiotopici**, pertanto rimangono isocroni (hanno lo stesso chemical shift) nei comuni solventi achirali selezionati.")
+        commenti.append("✅ **Molecola Achirale**: Nessun centro stereogenico rilevato. I protoni dei gruppi CH₂ simmetrici sono enantiotopici e rimangono isocroni.")
         
     return commenti
 
@@ -155,56 +153,58 @@ def stima_locale_13c(mol_no_h):
         signals.append({'delta': shift, 'multiplicity': 's', 'integral': integral, 'atoms': [atom.GetIdx() + 1 for atom in c_atoms]})
     return signals
 
-# --- EDITOR E UI ---
-smiles = st_ketcher()
-
-st.markdown("### ⚙️ Parametri di Acquisizione")
-col_param1, col_param2 = st.columns(2)
-with col_param1:
+# --- UI SIDEBAR ---
+with st.sidebar:
+    st.header("⚙️ Parametri")
     freq_1h = st.selectbox("Risoluzione Spettrometro (MHz)", [300.0, 400.0, 500.0, 600.0, 800.0], index=2)
     freq_13c = freq_1h / 4
-with col_param2:
     solvente = st.selectbox("Solvente Deuterato", ["CDCl3", "DMSO-d6", "D2O", "CD3OD"])
+    
+    st.markdown("---")
+    btn_1h = st.button(f"Genera ¹H-NMR ({int(freq_1h)} MHz)", type="primary", use_container_width=True)
+    btn_13c = st.button(f"Genera ¹³C-NMR ({int(freq_13c)} MHz)", type="secondary", use_container_width=True)
 
-col1, col2 = st.columns(2)
-with col1:
-    btn_1h = st.button(f"Genera Spettro ¹H-NMR ({int(freq_1h)} MHz)", type="primary", use_container_width=True)
-with col2:
-    btn_13c = st.button(f"Genera Spettro ¹³C-NMR ({int(freq_13c)} MHz)", type="secondary", use_container_width=True)
+# --- UI MAIN ---
+st.title("Simulatore Spettri NMR Avanzato 🧪")
+
+smiles = st_ketcher()
 
 if btn_1h or btn_13c:
     nmr_type = '1h' if btn_1h else '13c'
     
     if not smiles:
-        st.warning("Disegna una molecola prima di procedere.")
+        st.warning("Disegna una molecola sull'editor per procedere.")
     else:
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
-            st.error("Errore struttura. Controlla il disegno in Ketcher.")
+            st.error("Struttura non valida. Controlla il disegno in Ketcher.")
         else:
             props = calcola_proprieta(mol)
             iupac, comune = ottieni_nomi_pubchem(smiles)
             
-            st.markdown("---")
-            st.markdown(f"**Nome IUPAC:** {iupac} | **Nome Comune:** {comune}")
+            st.markdown("### 📋 Proprietà Molecolari")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Formula", props['formula'])
+            c2.metric("Massa Molecolare", f"{props['mw']:.2f} g/mol")
+            c3.metric("DBE (Insaturazioni)", f"{props['dbe']:.1f}")
+            c4.metric("Nome IUPAC", iupac if len(iupac)<20 else iupac[:20]+"...")
             
             commenti_stereo = analizza_stereochimica(mol)
-            for commento in commenti_stereo:
-                st.info(commento)
+            with st.expander("🔬 Analisi Stereochimica", expanded=True):
+                for commento in commenti_stereo:
+                    st.write(commento)
 
             signals = []
             if nmr_type == '1h':
                 plot_title = f'Spettro ¹H-NMR a {int(freq_1h)} MHz in {solvente}'
                 x_range = [-0.5, 12.5]
-                plot_color = '#0077B6'
-                mol_for_local_pred = props['mol_h']
-                signals = stima_locale_1h(mol_for_local_pred) # Forza il calcolo locale per gestire i flag strutturali (is_exchangeable)
+                plot_color = '#005f73' # Colore più elegante
+                signals = stima_locale_1h(props['mol_h']) 
             elif nmr_type == '13c':
                 plot_title = f'Spettro ¹³C-NMR a {int(freq_13c)} MHz in {solvente}'
                 x_range = [-10, 220]
-                plot_color = '#CC3311'
-                mol_for_local_pred = props['mol_no_h']
-                signals = stima_locale_13c(mol_for_local_pred)
+                plot_color = '#ae2012' 
+                signals = stima_locale_13c(props['mol_no_h'])
 
             if not signals:
                 st.error("Nessun segnale calcolato.")
@@ -212,11 +212,10 @@ if btn_1h or btn_13c:
                 pdf_buffer = io.BytesIO()
                 with PdfPages(pdf_buffer) as pdf:
 
-                    # 1. Struttura 2D
-                    fig_mol_draw = plt.figure(figsize=(8, 6))
+                    # 1. Struttura 2D (Nascosta alla vista Streamlit, inserita nel PDF)
+                    fig_mol_draw = plt.figure(figsize=(6, 4))
                     ax_mol_draw = fig_mol_draw.add_subplot(111)
-                    for atom in mol.GetAtoms():
-                        atom.SetProp('atomNote', str(atom.GetIdx() + 1))
+                    for atom in mol.GetAtoms(): atom.SetProp('atomNote', str(atom.GetIdx() + 1))
                     d2d = rdMolDraw2D.MolDraw2DCairo(int(fig_mol_draw.dpi * fig_mol_draw.get_figwidth()), int(fig_mol_draw.dpi * fig_mol_draw.get_figheight()))
                     d2d.drawOptions().annotationFontScale = 0.9
                     d2d.DrawMolecule(mol)
@@ -224,12 +223,10 @@ if btn_1h or btn_13c:
                     img_2d = Image.open(io.BytesIO(d2d.GetDrawingText()))
                     ax_mol_draw.imshow(img_2d)
                     ax_mol_draw.axis('off')
-                    ax_mol_draw.set_title("Struttura Molecolare", fontsize=14, fontweight='bold')
                     pdf.savefig(fig_mol_draw)
-                    st.pyplot(fig_mol_draw)
                     plt.close(fig_mol_draw)
 
-                    # 2. Spettro
+                    # 2. Spettro Principale
                     if nmr_type == '1h':
                         x_ppm = np.linspace(x_range[0], x_range[1], int(freq_1h * 100))
                         gamma = 0.0025 * (500.0 / freq_1h)
@@ -242,7 +239,7 @@ if btn_1h or btn_13c:
 
                     for sig in signals:
                         if nmr_type == '1h' and solvente == "D2O" and sig.get('is_exchangeable', False):
-                            continue # Scambio isotopico: il protone mobile scompare
+                            continue 
                         
                         segnali_filtrati.append(sig)
                         delta = float(sig.get('delta', 1.0))
@@ -255,20 +252,62 @@ if btn_1h or btn_13c:
                         for p_shift, p_int in sub_peaks:
                             y_intensity += p_int / (1.0 + ((x_ppm - p_shift) / gamma)**2)
 
+                    st.markdown("### 📊 Spettro Simulato")
                     fig_main = plt.figure(figsize=(15, 5))
                     ax_spec = fig_main.add_subplot(111)
-                    ax_spec.plot(x_ppm, y_intensity, color=plot_color, linewidth=1.2)
+                    ax_spec.plot(x_ppm, y_intensity, color=plot_color, linewidth=1.5)
                     ax_spec.set_xlim(x_range[1], x_range[0])
                     ax_spec.set_ylim(0, max(y_intensity) * 1.15 if np.any(y_intensity) else 1)
-                    ax_spec.set_xlabel(r'$\delta$ (ppm)', fontsize=11, fontweight='bold')
-                    ax_spec.set_ylabel('Intensità', fontsize=11, fontweight='bold')
-                    ax_spec.set_title(plot_title, fontweight='bold')
-                    ax_spec.grid(True, linestyle='--', alpha=0.4)
+                    ax_spec.set_xlabel(r'$\delta$ (ppm)', fontsize=12)
+                    ax_spec.set_ylabel('Intensità', fontsize=12)
+                    ax_spec.set_title(plot_title, fontsize=14, fontweight='bold')
+                    ax_spec.spines['top'].set_visible(False)
+                    ax_spec.spines['right'].set_visible(False)
+                    ax_spec.grid(True, linestyle=':', alpha=0.6)
                     pdf.savefig(fig_main)
                     st.pyplot(fig_main)
                     plt.close(fig_main)
 
-                    # 3. Tabella
+                    # 3. Zoomed Expansions (Ripristinato solo per 1H-NMR)
+                    n_peaks = len(segnali_filtrati)
+                    if n_peaks > 0 and nmr_type == '1h':
+                        st.markdown("### 🔍 Dettaglio Multipletti")
+                        fig_zoom, axes = plt.subplots(1, n_peaks, figsize=(max(3 * n_peaks, 6), 3.5))
+                        if n_peaks == 1: axes = [axes]
+
+                        signals_sorted = sorted(segnali_filtrati, key=lambda x: float(x.get('delta', 0)), reverse=True)
+
+                        for i, (ax, sig) in enumerate(zip(axes, signals_sorted)):
+                            delta = float(sig.get('delta', 1.0))
+                            mult = sig.get('multiplicity', 's')
+                            integ = int(float(sig.get('integral', 1)))
+                            atoms = sig.get('atoms', [])
+                            
+                            ax.plot(x_ppm, y_intensity, color='#e9d8a6', linewidth=2.0) # Colore in contrasto
+                            ax.plot(x_ppm, y_intensity, color='#001219', linewidth=1.0) 
+                            
+                            width_zoom = 0.08 * (500.0 / freq_1h) # Lo zoom scala con la frequenza
+                            ax.set_xlim(delta + width_zoom, delta - width_zoom)
+
+                            mask = (x_ppm >= delta - width_zoom) & (x_ppm <= delta + width_zoom)
+                            local_max = np.max(y_intensity[mask]) if np.any(mask) else 1
+                            ax.set_ylim(0, local_max * 1.1)
+
+                            ax.set_title(f"$\delta$ {delta:.2f}\n{mult}, {integ}H\nAtomi: {', '.join(map(str, sorted(atoms)))}", fontsize=10)
+                            ax.get_yaxis().set_visible(False)
+                            ax.spines['top'].set_visible(False)
+                            ax.spines['right'].set_visible(False)
+                            ax.spines['left'].set_visible(False)
+                            ax.grid(True, linestyle=':', alpha=0.5)
+                            ax.set_xlabel("ppm", fontsize=9)
+
+                        plt.tight_layout()
+                        pdf.savefig(fig_zoom)
+                        st.pyplot(fig_zoom)
+                        plt.close(fig_zoom)
+
+                    # 4. Tabella Riassuntiva
+                    st.markdown("### 📑 Assegnazione Segnali")
                     if segnali_filtrati:
                         df_signals = pd.DataFrame(segnali_filtrati)
                         if 'is_exchangeable' in df_signals.columns:
@@ -276,7 +315,8 @@ if btn_1h or btn_13c:
                         df_signals['atoms'] = df_signals['atoms'].apply(lambda x: ', '.join(map(str, x)))
                         df_signals.rename(columns={'delta': r'$\delta$ (ppm)', 'multiplicity': 'Molteplicità', 'integral': 'Integrale', 'atoms': 'Atomi'}, inplace=True)
                         df_signals = df_signals.sort_values(by=r'$\delta$ (ppm)', ascending=False).reset_index(drop=True)
-                        st.table(df_signals)
+                        st.dataframe(df_signals, use_container_width=True)
 
+                st.markdown("---")
                 pdf_buffer.seek(0)
-                st.download_button(label="📥 Scarica Report PDF", data=pdf_buffer, file_name="spettro_NMR_completo.pdf", mime="application/pdf", use_container_width=True)
+                st.download_button(label="📥 Scarica Report PDF", data=pdf_buffer, file_name=f"spettro_NMR_{iupac[:10]}.pdf", mime="application/pdf", use_container_width=True)
