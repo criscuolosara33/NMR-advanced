@@ -12,7 +12,7 @@ from rdkit.Chem.Draw import rdMolDraw2D
 from matplotlib.backends.backend_pdf import PdfPages
 import pandas as pd
 
-st.set_page_config(page_title="Simulatore NMR", layout="wide")
+st.set_page_config(page_title="Advanced NMR Simulator", layout="wide")
 
 # --- CSS E COSTANTI ESTETICHE ---
 BORDEAUX = '#6B1422'
