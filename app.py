@@ -12,7 +12,7 @@ from rdkit.Chem.Draw import rdMolDraw2D
 from matplotlib.backends.backend_pdf import PdfPages
 import pandas as pd
 
-st.set_page_config(page_title="Advanced NMR Simulator", layout="wide")
+st.set_page_config(page_title="NMR Simulator", layout="wide")
 
 # --- CSS E COSTANTI ESTETICHE ---
 BORDEAUX = '#6B1422'
@@ -213,7 +213,7 @@ def salva_pagina_uniforme(pdf, fig):
     plt.close(fig)
 
 # --- UI MAIN ---
-st.title("Advanced NMR Simulator")
+st.title("NMR Simulator")
 
 smiles = st_ketcher()
 
@@ -228,23 +228,28 @@ if not st.session_state.mostra_parametri:
         st.rerun()
 
 if st.session_state.mostra_parametri:
-    st.markdown("### Parametri")
-    c_freq1, c_freq2, c_solv, c_tech = st.columns(4)
-    freq_1h = c_freq1.selectbox("Frequenza 1H (MHz)", [300.0, 400.0, 500.0, 600.0, 800.0, 1000.0], index=2)
-    freq_13c = c_freq2.selectbox("Frequenza 13C (MHz)", [75.0, 100.0, 125.0, 150.0, 200.0, 250.0], index=2)
-    solvente = c_solv.selectbox("Solvente", ["CDCl3", "DMSO-d6", "D2O", "CD3OD"])
-    modo_13c = c_tech.selectbox("Tecnica 13C", ["Broadband", "DEPT-135", "DEPT-90", "APT"])
+    st.markdown("### Parametri 1H-NMR")
+    c1, c2 = st.columns(2)
+    freq_1h = c1.selectbox("Frequenza 1H (MHz)", [300.0, 400.0, 500.0, 600.0, 800.0, 1000.0], index=2)
+    solv_1h = c2.selectbox("Solvente 1H", ["CDCl3", "DMSO-d6", "D2O", "CD3OD"])
     
+    st.markdown("### Parametri 13C-NMR")
+    c3, c4, c5 = st.columns(3)
+    freq_13c = c3.selectbox("Frequenza 13C (MHz)", [75.0, 100.0, 125.0, 150.0, 200.0, 250.0], index=2)
+    solv_13c = c4.selectbox("Solvente 13C", ["CDCl3", "DMSO-d6", "D2O", "CD3OD"])
+    modo_13c = c5.selectbox("Tecnica 13C", ["Broadband", "DEPT-135", "DEPT-90", "APT"])
+    
+    st.markdown("<br>", unsafe_allow_html=True)
     cb1, cb2 = st.columns(2)
     if cb1.button("Acquisisci 1H", use_container_width=True):
         st.session_state.tipo_calcolo = '1h'
         st.session_state.mostra_parametri = False
-        st.session_state.parametri = {'freq_1h': freq_1h, 'solvente': solvente}
+        st.session_state.parametri = {'freq_1h': freq_1h, 'solvente': solv_1h}
         st.rerun()
     if cb2.button("Acquisisci 13C", use_container_width=True):
         st.session_state.tipo_calcolo = '13c'
         st.session_state.mostra_parametri = False
-        st.session_state.parametri = {'freq_13c': freq_13c, 'solvente': solvente, 'modo_13c': modo_13c}
+        st.session_state.parametri = {'freq_13c': freq_13c, 'solvente': solv_13c, 'modo_13c': modo_13c}
         st.rerun()
 
 if st.session_state.tipo_calcolo and smiles:
