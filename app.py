@@ -213,7 +213,7 @@ def salva_pagina_uniforme(pdf, fig):
     plt.close(fig)
 
 # --- UI MAIN ---
-st.title("Simulatore Spettroscopico")
+st.title("Advanced NMR Simulator")
 
 smiles = st_ketcher()
 
