@@ -165,7 +165,7 @@ with st.sidebar:
     btn_13c = st.button(f"Genera ¹³C-NMR ({int(freq_13c)} MHz)", type="secondary", use_container_width=True)
 
 # --- UI MAIN ---
-st.title("Simulatore Spettri NMR Avanzato 🧪")
+st.title("Simulatore Spettri NMR Avanzato ")
 
 smiles = st_ketcher()
 
@@ -182,7 +182,7 @@ if btn_1h or btn_13c:
             props = calcola_proprieta(mol)
             iupac, comune = ottieni_nomi_pubchem(smiles)
             
-            st.markdown("### 📋 Proprietà Molecolari")
+            st.markdown("###  Proprietà Molecolari")
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Formula", props['formula'])
             c2.metric("Massa Molecolare", f"{props['mw']:.2f} g/mol")
@@ -190,7 +190,7 @@ if btn_1h or btn_13c:
             c4.metric("Nome IUPAC", iupac if len(iupac)<20 else iupac[:20]+"...")
             
             commenti_stereo = analizza_stereochimica(mol)
-            with st.expander("🔬 Analisi Stereochimica", expanded=True):
+            with st.expander(" Analisi Stereochimica", expanded=True):
                 for commento in commenti_stereo:
                     st.write(commento)
 
@@ -252,7 +252,7 @@ if btn_1h or btn_13c:
                         for p_shift, p_int in sub_peaks:
                             y_intensity += p_int / (1.0 + ((x_ppm - p_shift) / gamma)**2)
 
-                    st.markdown("### 📊 Spettro Simulato")
+                    st.markdown("### Spettro Simulato")
                     fig_main = plt.figure(figsize=(15, 5))
                     ax_spec = fig_main.add_subplot(111)
                     ax_spec.plot(x_ppm, y_intensity, color=plot_color, linewidth=1.5)
