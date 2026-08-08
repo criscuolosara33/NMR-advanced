@@ -14,24 +14,46 @@ import pandas as pd
 
 st.set_page_config(page_title="Simulatore NMR", layout="wide", initial_sidebar_state="expanded")
 
+# --- CSS PERSONALIZZATO ---
+st.markdown("""
+<style>
+    div.stButton > button:first-child {
+        background-color: rgba(107, 20, 34, 0.85);
+        color: white;
+        border: none;
+    }
+    div.stButton > button:hover {
+        background-color: rgba(107, 20, 34, 1.0);
+        color: white;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # --- COSTANTI ---
 BORDEAUX = '#6B1422'
 
 # --- FUNZIONI CHIMICHE ---
 def calcola_proprieta(mol):
     mol_h = Chem.AddHs(mol)
-    c = sum(1 for a in mol_h.GetAtoms() if a.GetAtomicNum() == 6)
-    h = sum(1 for a in mol_h.GetAtoms() if a.GetAtomicNum() == 1)
-    n = sum(1 for a in mol_h.GetAtoms() if a.GetAtomicNum() == 7)
-    x = sum(1 for a in mol_h.GetAtoms() if a.GetAtomicNum() in [9, 17, 35, 53])
     
-    dbe = c + 1 - (h / 2.0) + (n / 2.0) - (x / 2.0)
+    n_tetra = sum(1 for a in mol_h.GetAtoms() if a.GetAtomicNum() in [6, 14]) # C, Si
+    n_tri = sum(1 for a in mol_h.GetAtoms() if a.GetAtomicNum() in [7, 15]) # N, P
+    n_mono = sum(1 for a in mol_h.GetAtoms() if a.GetAtomicNum() in [1, 9, 17, 35, 53]) # H, F, Cl, Br, I
+    n_di = sum(1 for a in mol_h.GetAtoms() if a.GetAtomicNum() in [8, 16]) # O, S
+    
+    dbe = n_tetra + 1 - (n_mono / 2.0) + (n_tri / 2.0)
     mw = Descriptors.MolWt(mol)
     formula = rdMolDescriptors.CalcMolFormula(mol_h)
     
-    formula_dbe_str = rf"{c} + 1 - \frac{{{h}}}{{2}} + \frac{{{n}}}{{2}} - \frac{{{x}}}{{2}}"
+    formula_dbe_str = rf"n_{{IV}} + 1 - \frac{{n_{{I}}}}{{2}} + \frac{{n_{{III}}}}{{2}}"
+    formula_dbe_val_str = rf"{n_tetra} + 1 - \frac{{{n_mono}}}{{2}} + \frac{{{n_tri}}}{{2}}"
     
-    return {'formula': formula, 'mw': mw, 'dbe': dbe, 'formula_dbe_str': formula_dbe_str, 'n_h': h, 'mol_h': mol_h, 'mol_no_h': mol}
+    return {
+        'formula': formula, 'mw': mw, 'dbe': dbe, 
+        'formula_dbe_str': formula_dbe_str, 'formula_dbe_val_str': formula_dbe_val_str,
+        'n_h': sum(1 for a in mol_h.GetAtoms() if a.GetAtomicNum() == 1), 
+        'mol_h': mol_h, 'mol_no_h': mol
+    }
 
 def ottieni_nomi_pubchem(smiles):
     try:
@@ -61,7 +83,7 @@ def analizza_stereochimica(mol):
                 ch2_diastereotopici.append(str(atom.GetIdx() + 1))
         
         if ch2_diastereotopici:
-            commenti.append(f"Protoni diastereotopici: I gruppi CH2 sugli atomi {', '.join(ch2_diastereotopici)} risentono dell'intorno chirale. I due protoni non sono isocroni e mostrano chemical shift distinti con accoppiamento geminale.")
+            commenti.append(f"Protoni diastereotopici: I gruppi CH2 sugli atomi {', '.join(ch2_diastereotopici)} risentono dell'intorno chirale. Non isocroni, mostrano chemical shift distinti con accoppiamento geminale.")
     else:
         commenti.append("Molecola achirale: Nessun centro stereogenico. I protoni dei gruppi CH2 simmetrici sono enantiotopici e rimangono isocroni.")
         
@@ -70,11 +92,12 @@ def analizza_stereochimica(mol):
 def descrivi_accoppiamento(mult):
     mappa = {
         's': "Singoletto: Nessun accoppiamento vicinale.",
-        'd': "Doppietto: Accoppiamento con 1 protone equivalente (J costante).",
+        'd': "Doppietto: Accoppiamento con 1 protone equivalente.",
         't': "Tripletto: Accoppiamento con 2 protoni equivalenti.",
         'q': "Quartetto: Accoppiamento con 3 protoni equivalenti.",
-        'dd': "Doppio doppietto: Accoppiamento con 2 protoni non equivalenti (J1 != J2).",
-        'm': "Multipletto: Sistema di spin complesso."
+        'dd': "Doppio doppietto: Accoppiamento con 2 protoni non equivalenti.",
+        'm': "Multipletto: Sistema di spin complesso.",
+        'br s': "Singoletto allargato: Rilassamento quadripolare o scambio dinamico."
     }
     return mappa.get(mult.lower(), "Segnale non risolto.")
 
@@ -113,6 +136,7 @@ def stima_locale_1h(mol_h):
         if neighbor.GetIsAromatic(): shift = 7.3
         elif neighbor.GetAtomicNum() == 8: shift = 4.5
         elif neighbor.GetAtomicNum() == 7: shift = 2.5
+        elif neighbor.GetAtomicNum() == 16: shift = 1.5
         elif neighbor.GetAtomicNum() == 6:
             if neighbor.GetHybridization() == Chem.HybridizationType.SP2: shift = 5.5
             elif neighbor.GetHybridization() == Chem.HybridizationType.SP: shift = 2.8
@@ -133,11 +157,10 @@ def stima_locale_1h(mol_h):
                         if h_atom.GetAtomicNum() == 1 and ranks[h_atom.GetIdx()] != rank:
                             vicini_h += 1
 
-        mult_map = {0:'s', 1:'d', 2:'t', 3:'q', 4:'m', 5:'m', 6:'m', 7:'m', 8:'m', 9:'m'}
-        mult = mult_map.get(vicini_h, 'm') if neighbor.GetAtomicNum() == 6 else 's'
-
-        # Rilevamento eteroatomi per scambio isotopico (O, N, S)
         is_exch = neighbor.GetAtomicNum() in [7, 8, 16]
+        
+        mult_map = {0:'s', 1:'d', 2:'t', 3:'q', 4:'m', 5:'m', 6:'m', 7:'m', 8:'m', 9:'m'}
+        mult = 'br s' if is_exch else (mult_map.get(vicini_h, 'm') if neighbor.GetAtomicNum() == 6 else 's')
 
         signals.append({
             'delta': shift, 
@@ -198,7 +221,7 @@ with st.sidebar:
     
     st.markdown("---")
     btn_1h = st.button("Spettro 1H", type="primary", use_container_width=True)
-    btn_13c = st.button("Spettro 13C", type="secondary", use_container_width=True)
+    btn_13c = st.button("Spettro 13C", type="primary", use_container_width=True)
 
 # --- UI MAIN ---
 st.title("Simulatore NMR")
@@ -209,27 +232,31 @@ if btn_1h or btn_13c:
     nmr_type = '1h' if btn_1h else '13c'
     
     if not smiles:
-        st.markdown("**Attenzione:** Inserire una struttura molecolare valida.")
+        st.markdown("Attenzione: Inserire una struttura molecolare valida.")
     else:
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
-            st.markdown("**Errore:** Struttura non valida.")
+            st.markdown("Errore: Struttura non valida.")
         else:
             props = calcola_proprieta(mol)
             iupac, comune = ottieni_nomi_pubchem(smiles)
             
             st.markdown("### Nomenclatura")
-            st.markdown(f"- **IUPAC**: {iupac}")
-            st.markdown(f"- **Comune**: {comune}")
+            st.markdown(f"- IUPAC: {iupac}")
+            st.markdown(f"- Comune: {comune}")
 
             st.markdown("### Proprietà")
             c1, c2 = st.columns(2)
             c1.metric("Formula", props['formula'])
             c2.metric("Massa (g/mol)", f"{props['mw']:.2f}")
             
-            st.markdown("**Insaturazioni (DBE)**")
-            st.latex(rf"DBE = C + 1 - \frac{{H}}{{2}} + \frac{{N}}{{2}} - \frac{{X}}{{2}}")
-            st.latex(rf"DBE = {props['formula_dbe_str']} = {props['dbe']:.1f}")
+            st.markdown("### Insaturazioni")
+            st.latex(rf"DBE = {props['formula_dbe_str']}")
+            st.latex(rf"DBE = {props['formula_dbe_val_str']} = {props['dbe']:.1f}")
+            st.markdown("""
+            *Note sul calcolo:* La formula considera gli atomi tetravalenti (C, Si), trivalenti (N, P) e monovalenti (H, Alogeni). 
+            Lo zolfo (S) e l'ossigeno (O) bivalenti non modificano il grado di insaturazione. In composti con zolfo o fosforo in stati di ossidazione superiori (es. solfossidi, solfoni, fosfati), il calcolo formale potrebbe richiedere aggiustamenti manuali in base alle strutture di Lewis adottate (ipervalenza vs separazione di carica).
+            """)
             
             st.markdown("### Stereochimica")
             commenti_stereo = analizza_stereochimica(mol)
@@ -247,12 +274,11 @@ if btn_1h or btn_13c:
                 signals = stima_locale_13c(props['mol_no_h'])
 
             if not signals:
-                st.markdown("**Errore:** Nessun segnale calcolato.")
+                st.markdown("Errore: Nessun segnale calcolato.")
             else:
                 pdf_buffer = io.BytesIO()
                 with PdfPages(pdf_buffer) as pdf:
 
-                    # 1. Struttura 2D (Esportata nel PDF)
                     fig_mol_draw = plt.figure(figsize=(6, 4), dpi=300)
                     ax_mol_draw = fig_mol_draw.add_subplot(111)
                     for atom in mol.GetAtoms(): atom.SetProp('atomNote', str(atom.GetIdx() + 1))
@@ -266,13 +292,12 @@ if btn_1h or btn_13c:
                     pdf.savefig(fig_mol_draw)
                     plt.close(fig_mol_draw)
 
-                    # 2. Generazione Array di Dati
                     if nmr_type == '1h':
                         x_ppm = np.linspace(x_range[0], x_range[1], int(freq_1h * 200))
-                        gamma = 0.0025 * (500.0 / freq_1h)
+                        gamma_base = 0.0025 * (500.0 / freq_1h)
                     else:
                         x_ppm = np.linspace(x_range[0], x_range[1], int(freq_13c * 200))
-                        gamma = 0.5
+                        gamma_base = 0.5
 
                     y_intensity = np.zeros_like(x_ppm)
                     segnali_visibili = []
@@ -288,13 +313,14 @@ if btn_1h or btn_13c:
                         
                         if nmr_type == '1h':
                             sub_peaks = genera_picchi(delta, sig.get('multiplicity', 's'), float(sig.get('integral', 1)), freq_1h)
+                            gamma_applicato = 0.06 if (sig.get('is_exchangeable', False) and not scambiato) else gamma_base
                         else:
                             sub_peaks = [(delta, float(sig.get('integral', 1)))]
+                            gamma_applicato = gamma_base
 
                         for p_shift, p_int in sub_peaks:
-                            y_intensity += p_int / (1.0 + ((x_ppm - p_shift) / gamma)**2)
+                            y_intensity += p_int / (1.0 + ((x_ppm - p_shift) / gamma_applicato)**2)
 
-                    # 3. Spettro Interattivo UI (Plotly)
                     st.markdown("### Spettro")
                     fig_interattivo = go.Figure()
                     fig_interattivo.add_trace(go.Scatter(x=x_ppm, y=y_intensity, mode='lines', line=dict(color=BORDEAUX, width=1.5)))
@@ -305,13 +331,13 @@ if btn_1h or btn_13c:
                         xaxis=dict(autorange="reversed"),
                         plot_bgcolor='white',
                         hovermode='x',
+                        height=700,
                         margin=dict(l=20, r=20, t=40, b=20)
                     )
                     fig_interattivo.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0')
                     fig_interattivo.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0', showticklabels=False)
                     st.plotly_chart(fig_interattivo, use_container_width=True)
 
-                    # 4. Spettro Statico (Solo per PDF)
                     fig_main = plt.figure(figsize=(15, 5), dpi=300)
                     ax_spec = fig_main.add_subplot(111)
                     ax_spec.plot(x_ppm, y_intensity, color=BORDEAUX, linewidth=1.5)
@@ -326,7 +352,6 @@ if btn_1h or btn_13c:
                     pdf.savefig(fig_main)
                     plt.close(fig_main)
 
-                    # 5. Dettaglio Multipletti ad alta risoluzione
                     n_peaks = len(segnali_visibili)
                     if n_peaks > 0 and nmr_type == '1h':
                         st.markdown("### Multipletti")
@@ -343,7 +368,7 @@ if btn_1h or btn_13c:
                             
                             ax.plot(x_ppm, y_intensity, color=BORDEAUX, linewidth=2.0) 
                             
-                            width_zoom = 0.08 * (500.0 / freq_1h) 
+                            width_zoom = 0.20 if sig.get('is_exchangeable', False) else (0.08 * (500.0 / freq_1h))
                             ax.set_xlim(delta + width_zoom, delta - width_zoom)
 
                             mask = (x_ppm >= delta - width_zoom) & (x_ppm <= delta + width_zoom)
@@ -363,7 +388,6 @@ if btn_1h or btn_13c:
                         st.pyplot(fig_zoom)
                         plt.close(fig_zoom)
 
-                    # 6. Tabella Assegnazione Rigorosa
                     st.markdown("### Assegnazione")
                     
                     df_data = []
