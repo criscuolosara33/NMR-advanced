@@ -136,12 +136,15 @@ def stima_locale_1h(mol_h):
         mult_map = {0:'s', 1:'d', 2:'t', 3:'q', 4:'m', 5:'m', 6:'m', 7:'m', 8:'m', 9:'m'}
         mult = mult_map.get(vicini_h, 'm') if neighbor.GetAtomicNum() == 6 else 's'
 
+        # Rilevamento eteroatomi per scambio isotopico (O, N, S)
+        is_exch = neighbor.GetAtomicNum() in [7, 8, 16]
+
         signals.append({
             'delta': shift, 
             'multiplicity': mult, 
             'integral': integral, 
             'atoms': list(c_indices), 
-            'is_exchangeable': neighbor.GetAtomicNum() in [7, 8],
+            'is_exchangeable': is_exch,
             'coupling_comment': descrivi_accoppiamento(mult)
         })
     return signals
@@ -181,6 +184,7 @@ def stima_locale_13c(mol_no_h):
             'multiplicity': 's', 
             'integral': integral, 
             'atoms': [atom.GetIdx() + 1 for atom in c_atoms],
+            'is_exchangeable': False,
             'coupling_comment': descrivi_accoppiamento('s')
         })
     return signals
@@ -271,13 +275,15 @@ if btn_1h or btn_13c:
                         gamma = 0.5
 
                     y_intensity = np.zeros_like(x_ppm)
-                    segnali_filtrati = []
+                    segnali_visibili = []
 
                     for sig in signals:
-                        if nmr_type == '1h' and solvente == "D2O" and sig.get('is_exchangeable', False):
+                        scambiato = (nmr_type == '1h' and solvente in ["D2O", "CD3OD"] and sig.get('is_exchangeable', False))
+                        
+                        if scambiato:
                             continue 
                         
-                        segnali_filtrati.append(sig)
+                        segnali_visibili.append(sig)
                         delta = float(sig.get('delta', 1.0))
                         
                         if nmr_type == '1h':
@@ -320,14 +326,14 @@ if btn_1h or btn_13c:
                     pdf.savefig(fig_main)
                     plt.close(fig_main)
 
-                    # 5. Dettaglio Multipletti ad alta risoluzione (Mostrati anche in UI)
-                    n_peaks = len(segnali_filtrati)
+                    # 5. Dettaglio Multipletti ad alta risoluzione
+                    n_peaks = len(segnali_visibili)
                     if n_peaks > 0 and nmr_type == '1h':
                         st.markdown("### Multipletti")
                         fig_zoom, axes = plt.subplots(1, n_peaks, figsize=(max(3 * n_peaks, 6), 3.5), dpi=300)
                         if n_peaks == 1: axes = [axes]
 
-                        signals_sorted = sorted(segnali_filtrati, key=lambda x: float(x.get('delta', 0)), reverse=True)
+                        signals_sorted = sorted(segnali_visibili, key=lambda x: float(x.get('delta', 0)), reverse=True)
 
                         for i, (ax, sig) in enumerate(zip(axes, signals_sorted)):
                             delta = float(sig.get('delta', 1.0))
@@ -357,23 +363,26 @@ if btn_1h or btn_13c:
                         st.pyplot(fig_zoom)
                         plt.close(fig_zoom)
 
-                    # 6. Tabella Assegnazione
+                    # 6. Tabella Assegnazione Rigorosa
                     st.markdown("### Assegnazione")
-                    if segnali_filtrati:
-                        df_signals = pd.DataFrame(segnali_filtrati)
-                        if 'is_exchangeable' in df_signals.columns:
-                            df_signals = df_signals.drop(columns=['is_exchangeable'])
-                        df_signals['atoms'] = df_signals['atoms'].apply(lambda x: ', '.join(map(str, x)))
+                    
+                    df_data = []
+                    for sig in signals:
+                        scambiato = (nmr_type == '1h' and solvente in ["D2O", "CD3OD"] and sig.get('is_exchangeable', False))
                         
-                        df_signals.rename(columns={
-                            'delta': 'Shift (ppm)', 
-                            'multiplicity': 'Molteplicità', 
-                            'integral': 'Integrale', 
-                            'atoms': 'Atomi',
-                            'coupling_comment': 'Commento Accoppiamento'
-                        }, inplace=True)
-                        
-                        df_signals = df_signals.sort_values(by='Shift (ppm)', ascending=False).reset_index(drop=True)
+                        row = {
+                            'Shift (ppm)': f"{sig['delta']:.2f}" if not scambiato else "N/D",
+                            'Molteplicità': sig['multiplicity'] if not scambiato else "-",
+                            'Integrale': sig['integral'] if not scambiato else "-",
+                            'Atomi': ", ".join(map(str, sig['atoms'])),
+                            'Commento Accoppiamento': sig['coupling_comment'] if not scambiato else f"Scambio H/D in {solvente}",
+                            '_sort_val': float(sig['delta'])
+                        }
+                        df_data.append(row)
+                    
+                    if df_data:
+                        df_signals = pd.DataFrame(df_data)
+                        df_signals = df_signals.sort_values(by='_sort_val', ascending=False).drop(columns=['_sort_val']).reset_index(drop=True)
                         st.dataframe(df_signals, use_container_width=True)
 
                 st.markdown("---")
