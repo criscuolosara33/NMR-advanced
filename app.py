@@ -14,14 +14,50 @@ import pandas as pd
 
 st.set_page_config(page_title="Simulatore NMR", layout="wide")
 
-# --- CSS E COSTANTI ---
+# --- CSS E COSTANTI ESTETICHE ---
 BORDEAUX = '#6B1422'
-st.markdown("""
+BORDEAUX_HOVER = '#822433'
+
+st.markdown(f"""
 <style>
-    div.stButton > button:first-child { background-color: rgba(107, 20, 34, 0.85); color: white; border: none; }
-    div.stButton > button:hover { background-color: rgba(107, 20, 34, 1.0); color: white; }
+    /* Tipografia Palatino Globale */
+    html, body, [class*="css"], .stMarkdown, .stText, h1, h2, h3, h4, h5, h6, table, th, td {{
+        font-family: 'Palatino', 'Palatino Linotype', 'Book Antiqua', serif !important;
+    }}
+    
+    /* Stile Riquadri Metriche */
+    div[data-testid="metric-container"] {{
+        background-color: #fafafa;
+        border: 1px solid #e6e6e6;
+        padding: 15px 20px;
+        border-radius: 6px;
+        box-shadow: 1px 2px 4px rgba(0,0,0,0.04);
+    }}
+    
+    /* Stile Pulsanti Professionali */
+    div.stButton > button:first-child {{ 
+        background-color: {BORDEAUX}; 
+        color: white; 
+        border: none;
+        border-radius: 4px;
+        font-weight: bold;
+        letter-spacing: 0.5px;
+        transition: all 0.2s ease-in-out;
+    }}
+    div.stButton > button:hover {{ 
+        background-color: {BORDEAUX_HOVER}; 
+        color: white; 
+        box-shadow: 0 4px 6px rgba(107, 20, 34, 0.2);
+    }}
+    
+    /* Pulizia UI generica */
+    hr {{ margin-top: 1.5em; margin-bottom: 1.5em; border-color: #e6e6e6; }}
 </style>
 """, unsafe_allow_html=True)
+
+# --- CONFIGURAZIONE MATPLOTLIB PER IL PDF ---
+plt.rcParams['font.family'] = 'serif'
+plt.rcParams['font.serif'] = ['Palatino', 'Palatino Linotype', 'Book Antiqua', 'serif']
 
 # --- INIZIALIZZAZIONE STATO ---
 if 'ultimo_smiles' not in st.session_state:
@@ -51,11 +87,11 @@ def ottieni_nomi_pubchem(smiles):
     try:
         url_iupac = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{requests.utils.quote(smiles)}/property/IUPACName/JSON"
         res_iupac = requests.get(url_iupac, timeout=5)
-        iupac_name = res_iupac.json()['PropertyTable']['Properties'][0]['IUPACName'] if res_iupac.status_code == 200 else "Non disponibile"
+        iupac_name = res_iupac.json()['PropertyTable']['Properties'][0]['IUPACName'] if res_iupac.status_code == 200 else "N/D"
         
         url_syn = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/{requests.utils.quote(smiles)}/synonyms/JSON"
         res_syn = requests.get(url_syn, timeout=5)
-        common_name = res_syn.json()['InformationList']['Information'][0]['Synonym'][0] if res_syn.status_code == 200 else "Non disponibile"
+        common_name = res_syn.json()['InformationList']['Information'][0]['Synonym'][0] if res_syn.status_code == 200 else "N/D"
         return iupac_name, common_name
     except Exception:
         return "Errore connessione", "Errore connessione"
@@ -172,12 +208,12 @@ def stima_locale_13c(mol_no_h):
     return signals
 
 def salva_pagina_uniforme(pdf, fig):
-    fig.set_size_inches(11.69, 8.27) # Forza formato A4 orizzontale uniforme per ogni pagina
-    pdf.savefig(fig, orientation='landscape')
+    fig.set_size_inches(11.69, 8.27) 
+    pdf.savefig(fig, orientation='landscape', bbox_inches='tight')
     plt.close(fig)
 
 # --- UI MAIN ---
-st.title("Simulatore NMR")
+st.title("Simulatore Spettroscopico")
 
 smiles = st_ketcher()
 
@@ -187,7 +223,7 @@ if smiles != st.session_state.ultimo_smiles:
     st.session_state.tipo_calcolo = None
 
 if not st.session_state.mostra_parametri:
-    if st.button("Modifica Parametri"):
+    if st.button("Modifica Parametri Acquisizione"):
         st.session_state.mostra_parametri = True
         st.rerun()
 
@@ -200,12 +236,12 @@ if st.session_state.mostra_parametri:
     modo_13c = c_tech.selectbox("Tecnica 13C", ["Broadband", "DEPT-135", "DEPT-90", "APT"])
     
     cb1, cb2 = st.columns(2)
-    if cb1.button("Spettro 1H", use_container_width=True):
+    if cb1.button("Acquisisci 1H", use_container_width=True):
         st.session_state.tipo_calcolo = '1h'
         st.session_state.mostra_parametri = False
         st.session_state.parametri = {'freq_1h': freq_1h, 'solvente': solvente}
         st.rerun()
-    if cb2.button("Spettro 13C", use_container_width=True):
+    if cb2.button("Acquisisci 13C", use_container_width=True):
         st.session_state.tipo_calcolo = '13c'
         st.session_state.mostra_parametri = False
         st.session_state.parametri = {'freq_13c': freq_13c, 'solvente': solvente, 'modo_13c': modo_13c}
@@ -217,26 +253,26 @@ if st.session_state.tipo_calcolo and smiles:
     
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
-        st.markdown("Errore: Struttura non valida.")
+        st.error("Errore: Struttura non valida.")
     else:
         props = calcola_proprieta(mol)
         iupac, comune = ottieni_nomi_pubchem(smiles)
         
+        st.markdown("---")
         st.markdown("### Nomenclatura")
-        st.markdown(f"- IUPAC: {iupac}")
-        st.markdown(f"- Comune: {comune}")
+        st.markdown(f"**IUPAC**: {iupac}<br>**Comune**: {comune}", unsafe_allow_html=True)
 
         st.markdown("### Proprietà")
         c1, c2 = st.columns(2)
-        c1.metric("Formula", props['formula'])
-        c2.metric("Massa (g/mol)", f"{props['mw']:.2f}")
+        c1.metric("Formula Bruta", props['formula'])
+        c2.metric("Massa Molare (g/mol)", f"{props['mw']:.2f}")
         
-        st.markdown("### Insaturazioni")
+        st.markdown("### Analisi Insaturazioni (DBE)")
         st.latex(rf"DBE = {props['formula_dbe_str']}")
         st.latex(rf"DBE = {props['formula_dbe_val_str']} = {props['dbe']:.1f}")
-        st.markdown("Note: Formula rigorosa. S e O bivalenti sono ininfluenti.")
+        st.caption("Il computo considera i nuclei tetravalenti (C, Si), trivalenti (N, P) e monovalenti (H, Alogeni). L'interferenza dovuta a nuclei con ipervalenza potenziale (S, P) richiede ispezione manuale.")
         
-        st.markdown("### Analisi Topologica")
+        st.markdown("### Ispezione Topologica")
         for commento in analizza_stereochimica(mol): st.markdown(f"- {commento}")
         for commento in analisi_accoppiamenti_avanzati(mol): st.markdown(f"- {commento}")
 
@@ -309,12 +345,26 @@ if st.session_state.tipo_calcolo and smiles:
             y_min = min(y_intensity) * 1.15 if min(y_intensity) < 0 else 0
             y_max = max(y_intensity) * 1.15 if np.any(y_intensity) else 1
 
-            st.markdown("### Spettro")
+            st.markdown("---")
+            st.markdown("### Spettro Generato")
+            
             fig_interattivo = go.Figure()
             fig_interattivo.add_trace(go.Scatter(x=x_ppm, y=y_intensity, mode='lines', line=dict(color=BORDEAUX, width=1.5)))
             if nmr_type == '13c' and tech in ["DEPT-135", "APT"]:
                 fig_interattivo.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.3)
-            fig_interattivo.update_layout(title=plot_title, xaxis_title="Chemical Shift (ppm)", yaxis_title="Intensità", xaxis=dict(autorange="reversed"), plot_bgcolor='white', hovermode='x', height=700)
+            
+            fig_interattivo.update_layout(
+                title=plot_title, 
+                xaxis_title="Chemical Shift (ppm)", 
+                yaxis_title="Intensità", 
+                xaxis=dict(autorange="reversed"), 
+                plot_bgcolor='white', 
+                hovermode='x', 
+                height=700,
+                font=dict(family="Palatino, serif")
+            )
+            fig_interattivo.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0')
+            fig_interattivo.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0', showticklabels=False)
             st.plotly_chart(fig_interattivo, use_container_width=True)
 
             fig_main = plt.figure(dpi=300)
@@ -326,10 +376,11 @@ if st.session_state.tipo_calcolo and smiles:
             ax_spec.set_xlabel('Chemical Shift (ppm)', fontsize=12)
             ax_spec.set_ylabel('Intensità', fontsize=12)
             ax_spec.set_title(plot_title, fontsize=14, fontweight='bold')
+            ax_spec.spines['top'].set_visible(False)
+            ax_spec.spines['right'].set_visible(False)
             salva_pagina_uniforme(pdf, fig_main)
 
             if nmr_type == '1h' and len(segnali_visibili) > 0:
-                st.markdown("### Multipletti")
                 fig_zoom, axes = plt.subplots(1, len(segnali_visibili), dpi=300)
                 if len(segnali_visibili) == 1: axes = [axes]
                 signals_sorted = sorted(segnali_visibili, key=lambda x: float(x.get('delta', 0)), reverse=True)
@@ -342,9 +393,10 @@ if st.session_state.tipo_calcolo and smiles:
                     ax.set_ylim(0, (np.max(y_intensity[mask]) if np.any(mask) else 1) * 1.1)
                     ax.set_title(f"{delta:.2f} ppm\n{sig.get('multiplicity', 's')}, {int(float(sig.get('integral', 1)))}H", fontsize=10)
                     ax.get_yaxis().set_visible(False)
+                    for spine in ['top', 'right', 'left']: ax.spines[spine].set_visible(False)
                 salva_pagina_uniforme(pdf, fig_zoom)
 
-            st.markdown("### Assegnazione")
+            st.markdown("### Assegnazione Segnali")
             df_data = []
             for sig in signals:
                 scambiato = (nmr_type == '1h' and solv in ["D2O", "CD3OD"] and sig.get('is_exchangeable', False))
@@ -369,4 +421,5 @@ if st.session_state.tipo_calcolo and smiles:
             if df_data:
                 st.dataframe(pd.DataFrame(df_data).sort_values(by='_sort_val', ascending=False).drop(columns=['_sort_val']).reset_index(drop=True), use_container_width=True)
 
-        st.download_button("Download PDF", data=pdf_buffer.getvalue(), file_name="Report_NMR.pdf", mime="application/pdf", use_container_width=True)
+        st.markdown("---")
+        st.download_button("Download Report (PDF)", data=pdf_buffer.getvalue(), file_name="Report_NMR.pdf", mime="application/pdf", use_container_width=True)
