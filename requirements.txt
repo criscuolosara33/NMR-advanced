@@ -6,4 +6,4 @@ matplotlib
 pandas
 requests
 Pillow
-ploty
+Ploty
