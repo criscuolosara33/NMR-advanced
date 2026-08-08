@@ -5,13 +5,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 import io
-import warnings
 from PIL import Image
 from rdkit import Chem
 from rdkit.Chem import Descriptors, rdMolDescriptors
 from rdkit.Chem.Draw import rdMolDraw2D
 from matplotlib.backends.backend_pdf import PdfPages
 import pandas as pd
+import warnings
 
 st.set_page_config(page_title="NMR Simulator", layout="wide")
 
@@ -160,7 +160,9 @@ def stima_locale_1h(mol_h):
         elif neighbor.GetAtomicNum() == 7: shift = 2.5
         elif neighbor.GetAtomicNum() == 16: shift = 1.5
         elif neighbor.GetAtomicNum() == 6:
-            if neighbor.GetHybridization() == Chem.HybridizationType.SP2: shift = 5.5
+            if neighbor.GetHybridization() == Chem.HybridizationType.SP2:
+                is_aldehyde = any(bond.GetBondType() == Chem.BondType.DOUBLE and bond.GetOtherAtom(neighbor).GetAtomicNum() == 8 for bond in neighbor.GetBonds())
+                shift = 9.8 if is_aldehyde else 5.5
             elif neighbor.GetHybridization() == Chem.HybridizationType.SP: shift = 2.8
             else: shift = 0.9 + (0.3 * sum(1 for a in neighbor.GetNeighbors() if a.GetAtomicNum() == 6))
         else: shift = 2.0
