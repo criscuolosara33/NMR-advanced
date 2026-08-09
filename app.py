@@ -4,6 +4,7 @@ import requests
 import numpy as np
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import io
 from PIL import Image
 from rdkit import Chem
@@ -374,7 +375,7 @@ elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c", "calcolo_cosy"]
             st.markdown("---")
             st.markdown("### Correlazione 1H-1H (COSY)")
             
-            cross_peaks = set()
+            cross_peaks_idx = set()
             for i, sigA in enumerate(signals):
                 for j, sigB in enumerate(signals):
                     if i >= j: continue
@@ -387,58 +388,63 @@ elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c", "calcolo_cosy"]
                                 break
                         if coupled: break
                     if coupled:
-                        cross_peaks.add((sigA['delta'], sigB['delta']))
-                        cross_peaks.add((sigB['delta'], sigA['delta']))
+                        cross_peaks_idx.add((i, j))
             
-            # Generazione matrice Z per Contour Plot
-            n_pts = 400
+            n_pts = 600
             x_grid = np.linspace(x_range[0], x_range[1], n_pts)
             X, Y = np.meshgrid(x_grid, x_grid)
             Z = np.zeros_like(X)
-            gamma_2d = 0.08  # Ampiezza picchi 2D
             
-            # Popolamento picchi diagonali
+            gamma_2d = 0.015 * (500.0 / freq)
+            gamma_1d = 0.0025 * (500.0 / freq)
+            x_ppm_1d = np.linspace(x_range[0], x_range[1], int(freq * 200))
+            y_intensity_1d = np.zeros_like(x_ppm_1d)
+
             for sig in signals:
                 if not sig.get('is_exchangeable', False):
-                    d = float(sig['delta'])
-                    Z += 1.0 / (1.0 + ((X - d)/gamma_2d)**2 + ((Y - d)/gamma_2d)**2)
-            
-            # Popolamento cross-peaks
-            for cx, cy in cross_peaks:
-                Z += 0.5 / (1.0 + ((X - cx)/gamma_2d)**2 + ((Y - cy)/gamma_2d)**2)
+                    sig['sub_peaks'] = genera_picchi_albero(sig['delta'], sig.get('multiplicity', 's'), float(sig.get('integral', 1)), freq)
+                    for p_shift, p_int in sig['sub_peaks']:
+                        y_intensity_1d += p_int / (1.0 + ((x_ppm_1d - p_shift) / gamma_1d)**2)
+                        Z += p_int / (1.0 + ((X - p_shift)/gamma_2d)**2 + ((Y - p_shift)/gamma_2d)**2)
+                        
+            for i, j in cross_peaks_idx:
+                sigA, sigB = signals[i], signals[j]
+                for px, px_int in sigA['sub_peaks']:
+                    for py, py_int in sigB['sub_peaks']:
+                        Z += (px_int * py_int * 0.3) / (1.0 + ((X - px)/gamma_2d)**2 + ((Y - py)/gamma_2d)**2)
+                        Z += (px_int * py_int * 0.3) / (1.0 + ((X - py)/gamma_2d)**2 + ((Y - px)/gamma_2d)**2)
 
-            fig_cosy = go.Figure()
+            fig_cosy = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.2, 0.8], vertical_spacing=0.01)
             
-            # Contour Plot (Curve di livello topografiche)
+            fig_cosy.add_trace(go.Scatter(x=x_ppm_1d, y=y_intensity_1d, mode='lines', line=dict(color=BORDEAUX, width=1.5), hoverinfo='skip', showlegend=False), row=1, col=1)
+            
             fig_cosy.add_trace(go.Contour(
                 z=Z, x=x_grid, y=x_grid,
-                colorscale=[[0, BORDEAUX], [1, BORDEAUX]], 
+                colorscale=[[0, 'white'], [1, BORDEAUX]], 
                 showscale=False,
-                contours=dict(
-                    start=0.15, 
-                    size=(np.max(Z) - 0.15) / 6 if np.max(Z) > 0.15 else 1, 
-                    coloring='lines'
-                ),
-                line=dict(width=1.5),
-                hoverinfo='skip'
-            ))
-            
-            # Linea Diagonale (Tratteggiata)
-            fig_cosy.add_trace(go.Scatter(x=x_range, y=x_range, mode='lines', line=dict(color='rgba(0,0,0,0.2)', dash='dash'), hoverinfo='skip', showlegend=False))
+                contours=dict(start=0.1, size=(np.max(Z) - 0.1) / 8 if np.max(Z) > 0.1 else 1, coloring='lines'),
+                line=dict(width=1.0),
+                hoverinfo='none'
+            ), row=2, col=1)
+
+            fig_cosy.add_trace(go.Scatter(x=x_range, y=x_range, mode='lines', line=dict(color='rgba(0,0,0,0.2)', dash='dash'), hoverinfo='skip', showlegend=False), row=2, col=1)
             
             fig_cosy.update_layout(
                 title=plot_title,
-                xaxis=dict(title="1H Shift (ppm)", autorange="reversed"),
-                yaxis=dict(title="1H Shift (ppm)", autorange="reversed", scaleanchor="x", scaleratio=1),
-                width=700, height=700,
+                width=800, height=900,
                 plot_bgcolor='white',
-                font=dict(family="Palatino, serif")
+                font=dict(family="Palatino, serif"),
+                margin=dict(l=40, r=40, t=60, b=40)
             )
-            fig_cosy.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0')
-            fig_cosy.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0')
+            
+            fig_cosy.update_yaxes(showticklabels=False, showgrid=False, zeroline=False, row=1, col=1)
+            fig_cosy.update_xaxes(autorange="reversed", showgrid=True, gridcolor='#E0E0E0', row=1, col=1)
+            
+            fig_cosy.update_xaxes(title_text="1H Shift (ppm)", autorange="reversed", showgrid=True, gridcolor='#E0E0E0', row=2, col=1)
+            fig_cosy.update_yaxes(title_text="1H Shift (ppm)", autorange="reversed", scaleanchor="x2", scaleratio=1, showgrid=True, gridcolor='#E0E0E0', row=2, col=1)
             
             st.plotly_chart(fig_cosy, use_container_width=True)
-            st.info("Nota: L'algoritmo calcola i cross-peaks per accoppiamenti vicinali (³J) sui carboni adiacenti. I protoni scambiabili sono omessi dalla mappa.")
+            st.info("Nota: L'algoritmo calcola i cross-peaks per accoppiamenti vicinali (³J) sui carboni adiacenti ricostruendo i multipletti in 2D. I protoni scambiabili sono omessi dalla mappa.")
             
         # --- LOGICA PLOT 1D E TABELLA (1H / 13C) ---
         else:
