@@ -379,28 +379,8 @@ elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c"]:
             y_min = min(y_intensity) * 1.15 if min(y_intensity) < 0 else 0
             y_max = max(y_intensity) * 1.15 if np.any(y_intensity) else 1
 
-            st.markdown("---")
-            st.markdown("### Spettro Generato")
-            
-            fig_interattivo = go.Figure()
-            fig_interattivo.add_trace(go.Scatter(x=x_ppm, y=y_intensity, mode='lines', line=dict(color=BORDEAUX, width=1.5)))
-            if nmr_type == '13c' and tech in ["DEPT-135", "APT"]:
-                fig_interattivo.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.3)
-            
-            fig_interattivo.update_layout(
-                title=plot_title, 
-                xaxis_title="Chemical Shift (ppm)", 
-                yaxis_title="Intensità", 
-                xaxis=dict(autorange="reversed"), 
-                plot_bgcolor='white', 
-                hovermode='x', 
-                height=600,
-                font=dict(family="Palatino, serif")
-            )
-            fig_interattivo.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0')
-            fig_interattivo.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0', showticklabels=False)
-            st.plotly_chart(fig_interattivo, use_container_width=True)
-
+            # Gestione della selezione riga per interattività
+            # Verrà calcolata durante il rendering Streamlit, ma per il PDF usiamo lo spettro completo base
             fig_main = plt.figure(dpi=300)
             ax_spec = fig_main.add_subplot(111)
             ax_spec.plot(x_ppm, y_intensity, color=BORDEAUX, linewidth=1.5)
@@ -430,8 +410,7 @@ elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c"]:
                     for spine in ['top', 'right', 'left']: ax.spines[spine].set_visible(False)
                 salva_pagina_uniforme(pdf, fig_zoom)
 
-            st.markdown("---")
-            
+            # Preparazione dati tabella
             df_data = []
             for sig in signals:
                 scambiato = (nmr_type == '1h' and solv in ["D2O", "CD3OD"] and sig.get('is_exchangeable', False))
@@ -455,47 +434,91 @@ elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c"]:
             
             df_signals_display = pd.DataFrame(df_data).sort_values(by='_sort_val', ascending=False).drop(columns=['_sort_val']).reset_index(drop=True)
 
-            col_table, col_mol = st.columns([0.6, 0.4])
+        st.markdown("---")
+        
+        col_table, col_mol = st.columns([0.6, 0.4])
+        
+        with col_table:
+            st.markdown("### Assegnazione Segnali (Clicca una riga)")
+            event = st.dataframe(
+                df_signals_display, 
+                use_container_width=True, 
+                selection_mode="single-row",
+                on_select="rerun"
+            )
+        
+        # Estrazione atomi e shift selezionati dalla tabella
+        selected_atoms = []
+        selected_delta = None
+        if len(event.selection.rows) > 0:
+            idx = event.selection.rows[0]
+            row_data = df_signals_display.iloc[idx]
+            atomi_str = row_data['Atomi']
+            if atomi_str != "N/D":
+                selected_atoms = [int(a) - 1 for a in atomi_str.split(", ")]
+            try:
+                selected_delta = float(row_data['Shift (ppm)'])
+            except ValueError:
+                selected_delta = None
+
+        with col_mol:
+            st.markdown("### Evidenziazione Strutturale")
+            fig_highlight = plt.figure(dpi=300, figsize=(5, 5))
+            ax_high = fig_highlight.add_subplot(111)
             
-            with col_table:
-                st.markdown("### Assegnazione Segnali (Clicca una riga)")
-                event = st.dataframe(
-                    df_signals_display, 
-                    use_container_width=True, 
-                    selection_mode="single-row",
-                    on_select="rerun"
-                )
+            for atom in mol.GetAtoms(): 
+                atom.SetProp('atomNote', str(atom.GetIdx() + 1))
             
-            with col_mol:
-                st.markdown("### Evidenziazione Strutturale")
-                selected_atoms = []
-                if len(event.selection.rows) > 0:
-                    idx = event.selection.rows[0]
-                    atomi_str = df_signals_display.iloc[idx]['Atomi']
-                    if atomi_str != "N/D":
-                        selected_atoms = [int(a) - 1 for a in atomi_str.split(", ")]
-                
-                fig_highlight = plt.figure(dpi=300, figsize=(5, 5))
-                ax_high = fig_highlight.add_subplot(111)
-                
-                # Modello per il disegno
-                for atom in mol.GetAtoms(): 
-                    atom.SetProp('atomNote', str(atom.GetIdx() + 1))
-                
-                d2d_high = rdMolDraw2D.MolDraw2DCairo(1500, 1500)
-                d2d_high.drawOptions().annotationFontScale = 0.9
-                
-                # Configurazione colore Bordeaux Trasparente per l'evidenziazione
-                bordeaux_rgb = (0.42, 0.08, 0.13)
-                highlight_dict = {a: bordeaux_rgb for a in selected_atoms}
-                
-                d2d_high.DrawMolecule(mol, highlightAtoms=selected_atoms, highlightAtomColors=highlight_dict)
-                d2d_high.FinishDrawing()
-                
-                ax_high.imshow(Image.open(io.BytesIO(d2d_high.GetDrawingText())))
-                ax_high.axis('off')
-                st.pyplot(fig_highlight)
-                plt.close(fig_highlight)
+            d2d_high = rdMolDraw2D.MolDraw2DCairo(1500, 1500)
+            d2d_high.drawOptions().annotationFontScale = 0.9
+            
+            # Colore bordeaux con opacità ridotta (alfa = 0.25)
+            bordeaux_rgba = (107/255, 20/255, 34/255, 0.25)
+            highlight_dict = {a: bordeaux_rgba for a in selected_atoms}
+            
+            d2d_high.DrawMolecule(mol, highlightAtoms=selected_atoms, highlightAtomColors=highlight_dict)
+            d2d_high.FinishDrawing()
+            
+            ax_high.imshow(Image.open(io.BytesIO(d2d_high.GetDrawingText())))
+            ax_high.axis('off')
+            st.pyplot(fig_highlight)
+            plt.close(fig_highlight)
+
+        # Spettro Interattivo Plotly con aggiunta del riquadro sul multipletto se selezionato
+        st.markdown("### Spettro Generato")
+        fig_interattivo = go.Figure()
+        fig_interattivo.add_trace(go.Scatter(x=x_ppm, y=y_intensity, mode='lines', line=dict(color=BORDEAUX, width=1.5)))
+        if nmr_type == '13c' and tech in ["DEPT-135", "APT"]:
+            fig_interattivo.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.3)
+        
+        # Aggiunta del quadratino/riquadro sul multipletto in base alla selezione
+        if selected_delta is not None and nmr_type == '1h':
+            width_box = 0.15 * (500.0 / freq)
+            fig_interattivo.add_vrect(
+                x0=selected_delta + width_box, 
+                x1=selected_delta - width_box,
+                fillcolor=BORDEAUX, 
+                opacity=0.18,
+                layer="above", 
+                line_width=1.5,
+                line_color=BORDEAUX,
+                annotation_text=f"Shift: {selected_delta:.2f} ppm",
+                annotation_position="top left"
+            )
+        
+        fig_interattivo.update_layout(
+            title=plot_title, 
+            xaxis_title="Chemical Shift (ppm)", 
+            yaxis_title="Intensità", 
+            xaxis=dict(autorange="reversed"), 
+            plot_bgcolor='white', 
+            hovermode='x', 
+            height=600,
+            font=dict(family="Palatino, serif")
+        )
+        fig_interattivo.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0')
+        fig_interattivo.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0', showticklabels=False)
+        st.plotly_chart(fig_interattivo, use_container_width=True)
 
         st.markdown("---")
         st.download_button("Download Report (PDF)", data=pdf_buffer.getvalue(), file_name="Report_NMR.pdf", mime="application/pdf", use_container_width=True)
