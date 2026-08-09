@@ -449,12 +449,16 @@ elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c"]:
             fig_highlight = plt.figure(dpi=300, figsize=(5, 5))
             ax_high = fig_highlight.add_subplot(111)
             for atom in mol.GetAtoms(): atom.SetProp('atomNote', str(atom.GetIdx() + 1))
+            
             d2d_high = rdMolDraw2D.MolDraw2DCairo(1500, 1500)
-            d2d_high.drawOptions().annotationFontScale = 0.9
-            bordeaux_rgba = (107/255, 20/255, 34/255, 0.25)
-            highlight_dict = {a: bordeaux_rgba for a in selected_atoms}
-            d2d_high.DrawMolecule(mol, highlightAtoms=selected_atoms, highlightAtomColors=highlight_dict)
+            
+            opts = d2d_high.drawOptions()
+            opts.annotationFontScale = 0.9
+            opts.highlightColour = (107/255, 20/255, 34/255, 0.25)
+            
+            d2d_high.DrawMolecule(mol, highlightAtoms=selected_atoms)
             d2d_high.FinishDrawing()
+            
             ax_high.imshow(Image.open(io.BytesIO(d2d_high.GetDrawingText())))
             ax_high.axis('off')
             st.pyplot(fig_highlight)
@@ -478,7 +482,7 @@ elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c"]:
         fig_interattivo.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0')
         fig_interattivo.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0', showticklabels=False)
         st.plotly_chart(fig_interattivo, use_container_width=True)
-
+    
         fig_main = plt.figure(dpi=300)
         ax_spec = fig_main.add_subplot(111)
         ax_spec.plot(x_ppm, y_intensity, color=BORDEAUX, linewidth=1.5)
