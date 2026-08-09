@@ -382,7 +382,7 @@ elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c", "calcolo_cosy"]
                     for hA in sigA['h_atoms']:
                         for hB in sigB['h_atoms']:
                             path = Chem.GetShortestPath(props['mol_h'], hA, hB)
-                            if len(path) == 4: # 4 atomi nel path = 3 legami di distanza (H-C-C-H)
+                            if len(path) == 4:
                                 coupled = True
                                 break
                         if coupled: break
@@ -390,28 +390,41 @@ elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c", "calcolo_cosy"]
                         cross_peaks.add((sigA['delta'], sigB['delta']))
                         cross_peaks.add((sigB['delta'], sigA['delta']))
             
+            # Generazione matrice Z per Contour Plot
+            n_pts = 400
+            x_grid = np.linspace(x_range[0], x_range[1], n_pts)
+            X, Y = np.meshgrid(x_grid, x_grid)
+            Z = np.zeros_like(X)
+            gamma_2d = 0.08  # Ampiezza picchi 2D
+            
+            # Popolamento picchi diagonali
+            for sig in signals:
+                if not sig.get('is_exchangeable', False):
+                    d = float(sig['delta'])
+                    Z += 1.0 / (1.0 + ((X - d)/gamma_2d)**2 + ((Y - d)/gamma_2d)**2)
+            
+            # Popolamento cross-peaks
+            for cx, cy in cross_peaks:
+                Z += 0.5 / (1.0 + ((X - cx)/gamma_2d)**2 + ((Y - cy)/gamma_2d)**2)
+
             fig_cosy = go.Figure()
             
-            # Linea Diagonale
-            fig_cosy.add_trace(go.Scatter(x=x_range, y=x_range, mode='lines', line=dict(color='#A0A0A0', dash='dash'), hoverinfo='skip', showlegend=False))
-            
-            # Segnali Diagonali (Auto-correlazione)
-            diag_shifts = [s['delta'] for s in signals if not s.get('is_exchangeable', False)]
-            fig_cosy.add_trace(go.Scatter(
-                x=diag_shifts, y=diag_shifts, mode='markers',
-                marker=dict(size=14, color=BORDEAUX, symbol='circle'),
-                name="Diagonale"
+            # Contour Plot (Curve di livello topografiche)
+            fig_cosy.add_trace(go.Contour(
+                z=Z, x=x_grid, y=x_grid,
+                colorscale=[[0, BORDEAUX], [1, BORDEAUX]], 
+                showscale=False,
+                contours=dict(
+                    start=0.15, 
+                    size=(np.max(Z) - 0.15) / 6 if np.max(Z) > 0.15 else 1, 
+                    coloring='lines'
+                ),
+                line=dict(width=1.5),
+                hoverinfo='skip'
             ))
             
-            # Cross-Peaks (Accoppiamenti)
-            if cross_peaks:
-                cx = [p[0] for p in cross_peaks]
-                cy = [p[1] for p in cross_peaks]
-                fig_cosy.add_trace(go.Scatter(
-                    x=cx, y=cy, mode='markers',
-                    marker=dict(size=10, color=BORDEAUX, opacity=0.6, symbol='circle-open', line=dict(width=2, color=BORDEAUX)),
-                    name="Cross Peaks (³J)"
-                ))
+            # Linea Diagonale (Tratteggiata)
+            fig_cosy.add_trace(go.Scatter(x=x_range, y=x_range, mode='lines', line=dict(color='rgba(0,0,0,0.2)', dash='dash'), hoverinfo='skip', showlegend=False))
             
             fig_cosy.update_layout(
                 title=plot_title,
@@ -520,7 +533,6 @@ elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c", "calcolo_cosy"]
                 ax_high = fig_highlight.add_subplot(111)
                 for atom in mol.GetAtoms(): atom.SetProp('atomNote', str(atom.GetIdx() + 1))
                 
-                # Identificazione legami per forzare il colore corretto su tutto il frammento
                 selected_bonds = []
                 if len(selected_atoms) > 1:
                     for bond in mol.GetBonds():
@@ -534,7 +546,6 @@ elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c", "calcolo_cosy"]
                 bordeaux_rgba = (107/255, 20/255, 34/255, 0.4)
                 highlight_dict = {a: bordeaux_rgba for a in selected_atoms}
                 highlight_bonds_dict = {b: bordeaux_rgba for b in selected_bonds}
-                
                 opts.setHighlightColour(bordeaux_rgba)
                 
                 d2d_high.DrawMolecule(mol, highlightAtoms=selected_atoms, highlightAtomColors=highlight_dict, highlightBonds=selected_bonds, highlightBondColors=highlight_bonds_dict)
@@ -564,7 +575,6 @@ elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c", "calcolo_cosy"]
             fig_interattivo.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0', showticklabels=False)
             st.plotly_chart(fig_interattivo, use_container_width=True)
 
-            # Generazione PDF solo per le tecniche 1D
             fig_main = plt.figure(dpi=300)
             ax_spec = fig_main.add_subplot(111)
             ax_spec.plot(x_ppm, y_intensity, color=BORDEAUX, linewidth=1.5)
