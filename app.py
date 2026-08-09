@@ -64,7 +64,7 @@ plt.rcParams['font.serif'] = ['DejaVu Serif', 'Bitstream Vera Serif', 'Times New
 if 'ultimo_smiles' not in st.session_state:
     st.session_state.ultimo_smiles = ""
 if 'stato_app' not in st.session_state:
-    st.session_state.stato_app = "input" # Stati possibili: "input", "calcolo_1h", "calcolo_13c"
+    st.session_state.stato_app = "input" 
 if 'parametri' not in st.session_state:
     st.session_state.parametri = {}
 
@@ -99,18 +99,39 @@ def ottieni_nomi_pubchem(smiles):
 
 def analizza_stereochimica(mol):
     Chem.AssignStereochemistry(mol, cleanIt=True, force=True, flagPossibleStereoCenters=True)
-    chiral_centers = Chem.FindMolChiralCenters(mol, includeUnassigned=True)
     commenti = []
     
+    chiral_centers = Chem.FindMolChiralCenters(mol, includeUnassigned=True)
     if chiral_centers:
-        centri = ", ".join([str(idx + 1) for idx, _ in chiral_centers])
-        commenti.append(f"Centri stereogenici: Rilevati agli atomi {centri}.")
+        dettagli_chirali = []
+        for idx, config in chiral_centers:
+            if config in ['R', 'S']:
+                dettagli_chirali.append(f"C{idx + 1} ({config})")
+            else:
+                dettagli_chirali.append(f"C{idx + 1} (Stereochimica non definita nel disegno)")
+        
+        commenti.append(f"Centri stereogenici: Rilevati agli atomi {', '.join(dettagli_chirali)}.")
         
         ch2_diastereotopici = [str(atom.GetIdx() + 1) for atom in mol.GetAtoms() if atom.GetAtomicNum() == 6 and atom.GetTotalNumHs() == 2]
         if ch2_diastereotopici:
             commenti.append(f"Protoni diastereotopici: I gruppi CH2 (atomi {', '.join(ch2_diastereotopici)}) sono in intorno chirale. Essendo diastereotopici, non sono chimicamente equivalenti (anisocroni) e presentano accoppiamento geminale (sistema AB o ABX).")
     else:
         commenti.append("Molecola achirale: Nessun centro stereogenico. I gruppi CH2 presentano protoni enantiotopici, chimicamente isocroni in ambienti achirali.")
+    
+    dettagli_ez = []
+    for bond in mol.GetBonds():
+        if bond.GetBondType() == Chem.BondType.DOUBLE:
+            stereo = bond.GetStereo()
+            if stereo == Chem.BondStereo.STEREOE:
+                a1, a2 = bond.GetBeginAtomIdx() + 1, bond.GetEndAtomIdx() + 1
+                dettagli_ez.append(f"C{a1}=C{a2} (E)")
+            elif stereo == Chem.BondStereo.STEREOZ:
+                a1, a2 = bond.GetBeginAtomIdx() + 1, bond.GetEndAtomIdx() + 1
+                dettagli_ez.append(f"C{a1}=C{a2} (Z)")
+    
+    if dettagli_ez:
+        commenti.append(f"Isomeria geometrica: Rilevati doppi legami con configurazione {', '.join(dettagli_ez)}.")
+        
     return commenti
 
 def analisi_accoppiamenti_avanzati(mol):
@@ -218,16 +239,12 @@ def salva_pagina_uniforme(pdf, fig):
 # --- UI MAIN ---
 st.title("NMR Simulator")
 
-# Disegna l'editor Ketcher
 smiles = st_ketcher()
 
-# Gestione del reset se la molecola cambia
 if smiles != st.session_state.ultimo_smiles:
     st.session_state.ultimo_smiles = smiles
     st.session_state.stato_app = "input"
 
-# --- BLOCCO PARAMETRI ---
-# I parametri sono visibili SOLO nello stato "input"
 if st.session_state.stato_app == "input":
     st.markdown("### Parametri 1H-NMR")
     c1, c2 = st.columns(2)
@@ -259,8 +276,6 @@ if st.session_state.stato_app == "input":
             st.session_state.stato_app = "calcolo_13c"
             st.rerun()
 
-# --- BLOCCO RISULTATI ---
-# Se l'app non è in stato "input", nascondiamo i parametri e mostriamo un pulsante di ritorno.
 elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c"]:
     
     if st.button("← Modifica Parametri Acquisizione", use_container_width=False):
