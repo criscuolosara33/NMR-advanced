@@ -127,12 +127,10 @@ def analizza_simmetria_equivalenza(mol):
 
     equiv_c = [g for g in gruppi_c.values() if len(g) > 1]
     if equiv_c:
-        commenti.
-        append(f"Simmetria (Nuclei 13C): Operazioni di simmetria del primo ordine (rotazioni o piani di riflessione) rendono chimicamente equivalenti i carboni: " + " | ".join([f"({', '.join(g)})" for g in equiv_c]) + ".")
+        commenti.append(f"Simmetria (Nuclei 13C): Operazioni di simmetria del primo ordine (rotazioni o piani di riflessione) rendono chimicamente equivalenti i carboni: " + " | ".join([f"({', '.join(g)})" for g in equiv_c]) + ".")
     
     equiv_h = [g for g in gruppi_h.values() if len(g) > 1 and len(set(g)) > 1]
     if equiv_h:
-        # Formattazione separata per evitare SyntaxError sugli apici
         equiv_h_formattati = []
         for g in equiv_h:
             atomi_puliti = [x.replace("'H", "") for x in set(g)]
@@ -154,7 +152,6 @@ def descrivi_accoppiamento_albero(mult):
     diz = {'s': "Singoletto", 'd': "Doppietto", 't': "Tripletto", 'q': "Quartetto", 'm': "Multipletto", 'br s': "Singoletto allargato"}
     if mult in diz: return diz[mult]
     
-    # Parsing Splitting Tree (es. 'dt' -> Doppietto di tripletti)
     nomi = {'d': "Doppietto", 't': "Tripletto", 'q': "Quartetto"}
     if len(mult) == 2 and all(c in nomi for c in mult):
         return f"{nomi[mult[0]]} di {nomi[mult[1]].lower()}i (Splitting Tree)"
@@ -169,7 +166,7 @@ def genera_picchi_albero(center_ppm, mult_type, integral, freq):
         j_std = 7.5/freq
         return [(center_ppm + o, r * integral) for o, r in zip(np.linspace(-1.5*j_std, 1.5*j_std, 5), [0.1, 0.25, 0.3, 0.25, 0.1])]
 
-    j_vals = [7.5/freq, 4.5/freq, 2.0/freq] # J costanti per ramificazioni successive
+    j_vals = [7.5/freq, 4.5/freq, 2.0/freq]
     
     def ottieni_offset(carattere, j_val):
         if carattere == 'd': return [-j_val/2, j_val/2], [0.5, 0.5]
@@ -469,7 +466,6 @@ elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c"]:
         if nmr_type == '13c' and tech in ["DEPT-135", "APT"]: fig_interattivo.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.3)
         
         if selected_delta is not None and nmr_type == '1h':
-            # La larghezza del riquadro si adatta alla complessità dello splitting
             molt_factor = len(selected_mult) if len(selected_mult) > 0 else 1
             width_box = (0.05 * molt_factor) * (500.0 / freq)
             fig_interattivo.add_vrect(
