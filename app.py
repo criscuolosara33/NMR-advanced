@@ -127,11 +127,18 @@ def analizza_simmetria_equivalenza(mol):
 
     equiv_c = [g for g in gruppi_c.values() if len(g) > 1]
     if equiv_c:
-        commenti.append(f"Simmetria (Nuclei 13C): Operazioni di simmetria del primo ordine (rotazioni o piani di riflessione) rendono chimicamente equivalenti i carboni: " + " | ".join([f"({', '.join(g)})" for g in equiv_c]) + ".")
+        commenti.
+        append(f"Simmetria (Nuclei 13C): Operazioni di simmetria del primo ordine (rotazioni o piani di riflessione) rendono chimicamente equivalenti i carboni: " + " | ".join([f"({', '.join(g)})" for g in equiv_c]) + ".")
     
     equiv_h = [g for g in gruppi_h.values() if len(g) > 1 and len(set(g)) > 1]
     if equiv_h:
-        commenti.append(f"Simmetria (Nuclei 1H): Operazioni di simmetria del primo ordine rendono chimicamente equivalenti i protoni sui carboni: " + " | ".join([f"({', '.join(set(g)).replace('''H'','''')})" for g in equiv_h]) + ".")
+        # Formattazione separata per evitare SyntaxError sugli apici
+        equiv_h_formattati = []
+        for g in equiv_h:
+            atomi_puliti = [x.replace("'H", "") for x in set(g)]
+            equiv_h_formattati.append(f"({', '.join(atomi_puliti)})")
+        
+        commenti.append(f"Simmetria (Nuclei 1H): Operazioni di simmetria del primo ordine rendono chimicamente equivalenti i protoni sui carboni: {' | '.join(equiv_h_formattati)}.")
 
     return commenti
 
