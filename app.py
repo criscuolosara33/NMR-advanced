@@ -26,7 +26,6 @@ st.markdown(f"""
         font-family: 'Palatino', 'Palatino Linotype', 'Book Antiqua', serif !important;
     }}
     
-    /* Stile Riquadri Metriche */
     div[data-testid="metric-container"] {{
         background-color: #fafafa;
         border: 1px solid #e6e6e6;
@@ -35,7 +34,6 @@ st.markdown(f"""
         box-shadow: 1px 2px 4px rgba(0,0,0,0.04);
     }}
     
-    /* Stile Pulsanti Professionali */
     div.stButton > button:first-child {{ 
         background-color: {BORDEAUX}; 
         color: white; 
@@ -396,7 +394,7 @@ elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c"]:
                 xaxis=dict(autorange="reversed"), 
                 plot_bgcolor='white', 
                 hovermode='x', 
-                height=700,
+                height=600,
                 font=dict(family="Palatino, serif")
             )
             fig_interattivo.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0')
@@ -432,7 +430,8 @@ elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c"]:
                     for spine in ['top', 'right', 'left']: ax.spines[spine].set_visible(False)
                 salva_pagina_uniforme(pdf, fig_zoom)
 
-            st.markdown("### Assegnazione Segnali")
+            st.markdown("---")
+            
             df_data = []
             for sig in signals:
                 scambiato = (nmr_type == '1h' and solv in ["D2O", "CD3OD"] and sig.get('is_exchangeable', False))
@@ -454,8 +453,49 @@ elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c"]:
                     '_sort_val': float(sig['delta'])
                 })
             
-            if df_data:
-                st.dataframe(pd.DataFrame(df_data).sort_values(by='_sort_val', ascending=False).drop(columns=['_sort_val']).reset_index(drop=True), use_container_width=True)
+            df_signals_display = pd.DataFrame(df_data).sort_values(by='_sort_val', ascending=False).drop(columns=['_sort_val']).reset_index(drop=True)
+
+            col_table, col_mol = st.columns([0.6, 0.4])
+            
+            with col_table:
+                st.markdown("### Assegnazione Segnali (Clicca una riga)")
+                event = st.dataframe(
+                    df_signals_display, 
+                    use_container_width=True, 
+                    selection_mode="single-row",
+                    on_select="rerun"
+                )
+            
+            with col_mol:
+                st.markdown("### Evidenziazione Strutturale")
+                selected_atoms = []
+                if len(event.selection.rows) > 0:
+                    idx = event.selection.rows[0]
+                    atomi_str = df_signals_display.iloc[idx]['Atomi']
+                    if atomi_str != "N/D":
+                        selected_atoms = [int(a) - 1 for a in atomi_str.split(", ")]
+                
+                fig_highlight = plt.figure(dpi=300, figsize=(5, 5))
+                ax_high = fig_highlight.add_subplot(111)
+                
+                # Modello per il disegno
+                for atom in mol.GetAtoms(): 
+                    atom.SetProp('atomNote', str(atom.GetIdx() + 1))
+                
+                d2d_high = rdMolDraw2D.MolDraw2DCairo(1500, 1500)
+                d2d_high.drawOptions().annotationFontScale = 0.9
+                
+                # Configurazione colore Bordeaux Trasparente per l'evidenziazione
+                bordeaux_rgb = (0.42, 0.08, 0.13)
+                highlight_dict = {a: bordeaux_rgb for a in selected_atoms}
+                
+                d2d_high.DrawMolecule(mol, highlightAtoms=selected_atoms, highlightAtomColors=highlight_dict)
+                d2d_high.FinishDrawing()
+                
+                ax_high.imshow(Image.open(io.BytesIO(d2d_high.GetDrawingText())))
+                ax_high.axis('off')
+                st.pyplot(fig_highlight)
+                plt.close(fig_highlight)
 
         st.markdown("---")
         st.download_button("Download Report (PDF)", data=pdf_buffer.getvalue(), file_name="Report_NMR.pdf", mime="application/pdf", use_container_width=True)
