@@ -240,7 +240,7 @@ def stima_locale_1h(mol_h):
             chars = [{1:'d', 2:'t', 3:'q'}.get(c, 'm') for c in counts]
             mult = 'm' if 'm' in chars or sum(counts) > 6 else "".join(chars)
 
-        signals.append({'delta': shift, 'multiplicity': mult, 'integral': integral, 'atoms': list(c_indices), 'is_exchangeable': is_exch, 'coupling_comment': descrivi_accoppiamento_albero(mult)})
+        signals.append({'delta': shift, 'multiplicity': mult, 'integral': integral, 'atoms': list(c_indices), 'h_atoms': [h.GetIdx() for h in h_atoms], 'is_exchangeable': is_exch, 'coupling_comment': descrivi_accoppiamento_albero(mult)})
     return signals
 
 def stima_locale_13c(mol_no_h):
@@ -292,10 +292,10 @@ if smiles != st.session_state.ultimo_smiles:
     st.session_state.stato_app = "input"
 
 if st.session_state.stato_app == "input":
-    st.markdown("### Parametri 1H-NMR")
+    st.markdown("### Parametri 1H-NMR & COSY")
     c1, c2 = st.columns(2)
-    freq_1h = c1.selectbox("Frequenza 1H (MHz)", [300.0, 400.0, 500.0, 600.0, 800.0, 1000.0], index=2)
-    solv_1h = c2.selectbox("Solvente 1H", ["CDCl3", "DMSO-d6", "D2O", "CD3OD"])
+    freq_1h = c1.selectbox("Frequenza (MHz)", [300.0, 400.0, 500.0, 600.0, 800.0, 1000.0], index=2)
+    solv_1h = c2.selectbox("Solvente", ["CDCl3", "DMSO-d6", "D2O", "CD3OD"])
     
     st.markdown("### Parametri 13C-NMR")
     c3, c4, c5 = st.columns(3)
@@ -304,7 +304,7 @@ if st.session_state.stato_app == "input":
     modo_13c = c5.selectbox("Tecnica 13C", ["Broadband", "DEPT-135", "DEPT-90", "APT"])
     
     st.markdown("<br>", unsafe_allow_html=True)
-    cb1, cb2 = st.columns(2)
+    cb1, cb2, cb3 = st.columns(3)
     
     if cb1.button("Acquisisci 1H", use_container_width=True):
         if not smiles: st.error("Errore: Nessuna molecola disegnata.")
@@ -319,8 +319,15 @@ if st.session_state.stato_app == "input":
             st.session_state.parametri = {'freq': freq_13c, 'solvente': solv_13c, 'tech': modo_13c}
             st.session_state.stato_app = "calcolo_13c"
             st.rerun()
+            
+    if cb3.button("Acquisisci COSY 2D", use_container_width=True):
+        if not smiles: st.error("Errore: Nessuna molecola disegnata.")
+        else:
+            st.session_state.parametri = {'freq': freq_1h, 'solvente': solv_1h, 'tech': 'cosy'}
+            st.session_state.stato_app = "calcolo_cosy"
+            st.rerun()
 
-elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c"]:
+elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c", "calcolo_cosy"]:
     
     if st.button("← Modifica Parametri Acquisizione", use_container_width=False):
         st.session_state.stato_app = "input"
@@ -355,162 +362,237 @@ elif st.session_state.stato_app in ["calcolo_1h", "calcolo_13c"]:
         if st.session_state.stato_app == 'calcolo_1h':
             freq, solv, tech, nmr_type, plot_title, x_range = p['freq'], p['solvente'], '1h', '1h', f'1H-NMR ({int(p["freq"])} MHz, {p["solvente"]})', [-0.5, 12.5]
             signals = stima_locale_1h(props['mol_h']) 
-        else:
+        elif st.session_state.stato_app == 'calcolo_13c':
             freq, solv, tech, nmr_type, plot_title, x_range = p['freq'], p['solvente'], p['tech'], '13c', f'13C-NMR {p["tech"]} ({int(p["freq"])} MHz, {p["solvente"]})', [-10, 220]
             signals = stima_locale_13c(props['mol_no_h'])
+        else:
+            freq, solv, tech, nmr_type, plot_title, x_range = p['freq'], p['solvente'], 'cosy', 'cosy', f'Spettro COSY 2D ({int(p["freq"])} MHz, {p["solvente"]})', [-0.5, 12.5]
+            signals = stima_locale_1h(props['mol_h'])
 
-        pdf_buffer = io.BytesIO()
-        with PdfPages(pdf_buffer) as pdf:
-
-            fig_mol_draw = plt.figure(dpi=300)
-            ax_mol_draw = fig_mol_draw.add_subplot(111)
-            for atom in mol.GetAtoms(): atom.SetProp('atomNote', str(atom.GetIdx() + 1))
-            d2d = rdMolDraw2D.MolDraw2DCairo(1500, 1000)
-            d2d.drawOptions().annotationFontScale = 0.9
-            d2d.DrawMolecule(mol)
-            d2d.FinishDrawing()
-            ax_mol_draw.imshow(Image.open(io.BytesIO(d2d.GetDrawingText())))
-            ax_mol_draw.axis('off')
-            salva_pagina_uniforme(pdf, fig_mol_draw)
-
-            x_ppm = np.linspace(x_range[0], x_range[1], int(freq * 200))
-            gamma_base = 0.0025 * (500.0 / freq) if nmr_type == '1h' else 0.5
-            y_intensity = np.zeros_like(x_ppm)
-            segnali_visibili = []
-
-            for sig in signals:
-                if nmr_type == '1h':
-                    scambiato = (solv in ["D2O", "CD3OD"] and sig.get('is_exchangeable', False))
-                    if scambiato: continue 
-                    segnali_visibili.append(sig)
-                    delta = float(sig.get('delta', 1.0))
-                    sub_peaks = genera_picchi_albero(delta, sig.get('multiplicity', 's'), float(sig.get('integral', 1)), freq)
-                    gamma_app = 0.06 if sig.get('is_exchangeable', False) else gamma_base
-                    for p_shift, p_int in sub_peaks: y_intensity += p_int / (1.0 + ((x_ppm - p_shift) / gamma_app)**2)
-                elif nmr_type == '13c':
-                    n_h = sig.get('n_h', 0)
-                    if tech == "DEPT-135":
-                        if n_h == 0: continue
-                        p_int = -1.0 if n_h == 2 else 1.0
-                    elif tech == "DEPT-90":
-                        if n_h != 1: continue
-                        p_int = 1.0
-                    elif tech == "APT": p_int = 1.0 if n_h in [0, 2] else -1.0
-                    else: p_int = 1.0
-                    segnali_visibili.append(sig)
-                    y_intensity += p_int / (1.0 + ((x_ppm - float(sig.get('delta', 1.0))) / gamma_base)**2)
-
-            y_min = min(y_intensity) * 1.15 if min(y_intensity) < 0 else 0
-            y_max = max(y_intensity) * 1.15 if np.any(y_intensity) else 1
-
-            df_data = []
-            for sig in signals:
-                scambiato = (nmr_type == '1h' and solv in ["D2O", "CD3OD"] and sig.get('is_exchangeable', False))
-                scomparso_dept = False
-                note_acc = sig['coupling_comment']
-                
-                if nmr_type == '13c':
-                    n_h = sig.get('n_h', 0)
-                    if tech == "DEPT-135" and n_h == 0: scomparso_dept = True; note_acc = "C quaternario (invisibile nel DEPT-135)"
-                    if tech == "DEPT-90" and n_h != 1: scomparso_dept = True; note_acc = "Non CH (invisibile nel DEPT-90)"
-                if scambiato: note_acc = f"Scambio H/D in {solv}"
-                
-                df_data.append({
-                    'Shift (ppm)': "N/D" if scambiato or scomparso_dept else f"{sig['delta']:.2f}",
-                    'Tipo': sig.get('tipo_c', 'H'),
-                    'Molteplicità': sig['multiplicity'] if not (scambiato or scomparso_dept) else "-",
-                    'Atomi': ", ".join(map(str, sig['atoms'])),
-                    'Note': note_acc,
-                    '_sort_val': float(sig['delta'])
-                })
+        # --- LOGICA PLOT COSY 2D ---
+        if nmr_type == 'cosy':
+            st.markdown("---")
+            st.markdown("### Correlazione 1H-1H (COSY)")
             
-            df_signals_display = pd.DataFrame(df_data).sort_values(by='_sort_val', ascending=False).drop(columns=['_sort_val']).reset_index(drop=True)
-
-        st.markdown("---")
-        col_table, col_mol = st.columns([0.6, 0.4])
-        
-        with col_table:
-            st.markdown("### Assegnazione Segnali (Clicca una riga)")
-            event = st.dataframe(df_signals_display, use_container_width=True, selection_mode="single-row", on_select="rerun")
-        
-        selected_atoms, selected_delta, selected_mult = [], None, ""
-        if len(event.selection.rows) > 0:
-            idx = event.selection.rows[0]
-            row_data = df_signals_display.iloc[idx]
-            atomi_str = row_data['Atomi']
-            if atomi_str != "N/D": selected_atoms = [int(a) - 1 for a in atomi_str.split(", ")]
-            try: 
-                selected_delta = float(row_data['Shift (ppm)'])
-                selected_mult = row_data['Molteplicità']
-            except ValueError: selected_delta = None
-
-        with col_mol:
-            st.markdown("### Struttura")
-            fig_highlight = plt.figure(dpi=300, figsize=(5, 5))
-            ax_high = fig_highlight.add_subplot(111)
-            for atom in mol.GetAtoms(): atom.SetProp('atomNote', str(atom.GetIdx() + 1))
+            cross_peaks = set()
+            for i, sigA in enumerate(signals):
+                for j, sigB in enumerate(signals):
+                    if i >= j: continue
+                    coupled = False
+                    for hA in sigA['h_atoms']:
+                        for hB in sigB['h_atoms']:
+                            path = Chem.GetShortestPath(props['mol_h'], hA, hB)
+                            if len(path) == 4: # 4 atomi nel path = 3 legami di distanza (H-C-C-H)
+                                coupled = True
+                                break
+                        if coupled: break
+                    if coupled:
+                        cross_peaks.add((sigA['delta'], sigB['delta']))
+                        cross_peaks.add((sigB['delta'], sigA['delta']))
             
-            d2d_high = rdMolDraw2D.MolDraw2DCairo(1500, 1500)
+            fig_cosy = go.Figure()
             
-            opts = d2d_high.drawOptions()
-            opts.annotationFontScale = 0.9
-            opts.highlightColour = (107/255, 20/255, 34/255, 0.25)
+            # Linea Diagonale
+            fig_cosy.add_trace(go.Scatter(x=x_range, y=x_range, mode='lines', line=dict(color='#A0A0A0', dash='dash'), hoverinfo='skip', showlegend=False))
             
-            d2d_high.DrawMolecule(mol, highlightAtoms=selected_atoms)
-            d2d_high.FinishDrawing()
+            # Segnali Diagonali (Auto-correlazione)
+            diag_shifts = [s['delta'] for s in signals if not s.get('is_exchangeable', False)]
+            fig_cosy.add_trace(go.Scatter(
+                x=diag_shifts, y=diag_shifts, mode='markers',
+                marker=dict(size=14, color=BORDEAUX, symbol='circle'),
+                name="Diagonale"
+            ))
             
-            ax_high.imshow(Image.open(io.BytesIO(d2d_high.GetDrawingText())))
-            ax_high.axis('off')
-            st.pyplot(fig_highlight)
-            plt.close(fig_highlight)
-
-        st.markdown("### Spettro")
-        fig_interattivo = go.Figure()
-        fig_interattivo.add_trace(go.Scatter(x=x_ppm, y=y_intensity, mode='lines', line=dict(color=BORDEAUX, width=1.5)))
-        if nmr_type == '13c' and tech in ["DEPT-135", "APT"]: fig_interattivo.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.3)
-        
-        if selected_delta is not None and nmr_type == '1h':
-            molt_factor = len(selected_mult) if len(selected_mult) > 0 else 1
-            width_box = (0.05 * molt_factor) * (500.0 / freq)
-            fig_interattivo.add_vrect(
-                x0=selected_delta + width_box, x1=selected_delta - width_box,
-                fillcolor=BORDEAUX, opacity=0.18, layer="above", line_width=1.5, line_color=BORDEAUX,
-                annotation_text=f"{selected_delta:.2f} ppm ({selected_mult})", annotation_position="top left"
+            # Cross-Peaks (Accoppiamenti)
+            if cross_peaks:
+                cx = [p[0] for p in cross_peaks]
+                cy = [p[1] for p in cross_peaks]
+                fig_cosy.add_trace(go.Scatter(
+                    x=cx, y=cy, mode='markers',
+                    marker=dict(size=10, color=BORDEAUX, opacity=0.6, symbol='circle-open', line=dict(width=2, color=BORDEAUX)),
+                    name="Cross Peaks (³J)"
+                ))
+            
+            fig_cosy.update_layout(
+                title=plot_title,
+                xaxis=dict(title="1H Shift (ppm)", autorange="reversed"),
+                yaxis=dict(title="1H Shift (ppm)", autorange="reversed", scaleanchor="x", scaleratio=1),
+                width=700, height=700,
+                plot_bgcolor='white',
+                font=dict(family="Palatino, serif")
             )
-        
-        fig_interattivo.update_layout(title=plot_title, xaxis_title="Chemical Shift (ppm)", yaxis_title="Intensità", xaxis=dict(autorange="reversed"), plot_bgcolor='white', hovermode='x', height=600, font=dict(family="Palatino, serif"))
-        fig_interattivo.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0')
-        fig_interattivo.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0', showticklabels=False)
-        st.plotly_chart(fig_interattivo, use_container_width=True)
-    
-        fig_main = plt.figure(dpi=300)
-        ax_spec = fig_main.add_subplot(111)
-        ax_spec.plot(x_ppm, y_intensity, color=BORDEAUX, linewidth=1.5)
-        if nmr_type == '13c' and tech in ["DEPT-135", "APT"]: ax_spec.axhline(0, color='black', linestyle='--', alpha=0.3)
-        ax_spec.set_xlim(x_range[1], x_range[0])
-        ax_spec.set_ylim(y_min, y_max)
-        ax_spec.set_xlabel('Chemical Shift (ppm)', fontsize=12)
-        ax_spec.set_ylabel('Intensità', fontsize=12)
-        ax_spec.set_title(plot_title, fontsize=14, fontweight='bold')
-        for sp in ['top', 'right']: ax_spec.spines[sp].set_visible(False)
-        salva_pagina_uniforme(pdf, fig_main)
+            fig_cosy.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0')
+            fig_cosy.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0')
+            
+            st.plotly_chart(fig_cosy, use_container_width=True)
+            st.info("Nota: L'algoritmo calcola i cross-peaks per accoppiamenti vicinali (³J) sui carboni adiacenti. I protoni scambiabili sono omessi dalla mappa.")
+            
+        # --- LOGICA PLOT 1D E TABELLA (1H / 13C) ---
+        else:
+            pdf_buffer = io.BytesIO()
+            with PdfPages(pdf_buffer) as pdf:
 
-        if nmr_type == '1h' and len(segnali_visibili) > 0:
-            fig_zoom, axes = plt.subplots(1, len(segnali_visibili), dpi=300)
-            if len(segnali_visibili) == 1: axes = [axes]
-            signals_sorted = sorted(segnali_visibili, key=lambda x: float(x.get('delta', 0)), reverse=True)
-            for i, (ax, sig) in enumerate(zip(axes, signals_sorted)):
-                delta = float(sig.get('delta', 1.0))
-                ax.plot(x_ppm, y_intensity, color=BORDEAUX, linewidth=2.0) 
-                molt_f = len(sig.get('multiplicity', 's'))
-                width_zoom = 0.20 if sig.get('is_exchangeable', False) else ((0.03 * molt_f) * (500.0 / freq))
-                ax.set_xlim(delta + width_zoom, delta - width_zoom)
-                mask = (x_ppm >= delta - width_zoom) & (x_ppm <= delta + width_zoom)
-                ax.set_ylim(0, (np.max(y_intensity[mask]) if np.any(mask) else 1) * 1.1)
-                ax.set_title(f"{delta:.2f} ppm\n{sig.get('multiplicity', 's')}", fontsize=10)
-                ax.get_yaxis().set_visible(False)
-                for spine in ['top', 'right', 'left']: ax.spines[spine].set_visible(False)
-            salva_pagina_uniforme(pdf, fig_zoom)
+                fig_mol_draw = plt.figure(dpi=300)
+                ax_mol_draw = fig_mol_draw.add_subplot(111)
+                for atom in mol.GetAtoms(): atom.SetProp('atomNote', str(atom.GetIdx() + 1))
+                d2d = rdMolDraw2D.MolDraw2DCairo(1500, 1000)
+                d2d.drawOptions().annotationFontScale = 0.9
+                d2d.DrawMolecule(mol)
+                d2d.FinishDrawing()
+                ax_mol_draw.imshow(Image.open(io.BytesIO(d2d.GetDrawingText())))
+                ax_mol_draw.axis('off')
+                salva_pagina_uniforme(pdf, fig_mol_draw)
 
-        st.markdown("---")
-        st.download_button("Download Report (PDF)", data=pdf_buffer.getvalue(), file_name="Report_NMR.pdf", mime="application/pdf", use_container_width=True)
+                x_ppm = np.linspace(x_range[0], x_range[1], int(freq * 200))
+                gamma_base = 0.0025 * (500.0 / freq) if nmr_type == '1h' else 0.5
+                y_intensity = np.zeros_like(x_ppm)
+                segnali_visibili = []
+
+                for sig in signals:
+                    if nmr_type == '1h':
+                        scambiato = (solv in ["D2O", "CD3OD"] and sig.get('is_exchangeable', False))
+                        if scambiato: continue 
+                        segnali_visibili.append(sig)
+                        delta = float(sig.get('delta', 1.0))
+                        sub_peaks = genera_picchi_albero(delta, sig.get('multiplicity', 's'), float(sig.get('integral', 1)), freq)
+                        gamma_app = 0.06 if sig.get('is_exchangeable', False) else gamma_base
+                        for p_shift, p_int in sub_peaks: y_intensity += p_int / (1.0 + ((x_ppm - p_shift) / gamma_app)**2)
+                    elif nmr_type == '13c':
+                        n_h = sig.get('n_h', 0)
+                        if tech == "DEPT-135":
+                            if n_h == 0: continue
+                            p_int = -1.0 if n_h == 2 else 1.0
+                        elif tech == "DEPT-90":
+                            if n_h != 1: continue
+                            p_int = 1.0
+                        elif tech == "APT": p_int = 1.0 if n_h in [0, 2] else -1.0
+                        else: p_int = 1.0
+                        segnali_visibili.append(sig)
+                        y_intensity += p_int / (1.0 + ((x_ppm - float(sig.get('delta', 1.0))) / gamma_base)**2)
+
+                y_min = min(y_intensity) * 1.15 if min(y_intensity) < 0 else 0
+                y_max = max(y_intensity) * 1.15 if np.any(y_intensity) else 1
+
+                df_data = []
+                for sig in signals:
+                    scambiato = (nmr_type == '1h' and solv in ["D2O", "CD3OD"] and sig.get('is_exchangeable', False))
+                    scomparso_dept = False
+                    note_acc = sig['coupling_comment']
+                    
+                    if nmr_type == '13c':
+                        n_h = sig.get('n_h', 0)
+                        if tech == "DEPT-135" and n_h == 0: scomparso_dept = True; note_acc = "C quaternario (invisibile nel DEPT-135)"
+                        if tech == "DEPT-90" and n_h != 1: scomparso_dept = True; note_acc = "Non CH (invisibile nel DEPT-90)"
+                    if scambiato: note_acc = f"Scambio H/D in {solv}"
+                    
+                    df_data.append({
+                        'Shift (ppm)': "N/D" if scambiato or scomparso_dept else f"{sig['delta']:.2f}",
+                        'Tipo': sig.get('tipo_c', 'H'),
+                        'Molteplicità': sig['multiplicity'] if not (scambiato or scomparso_dept) else "-",
+                        'Atomi': ", ".join(map(str, sig['atoms'])),
+                        'Note': note_acc,
+                        '_sort_val': float(sig['delta'])
+                    })
+                
+                df_signals_display = pd.DataFrame(df_data).sort_values(by='_sort_val', ascending=False).drop(columns=['_sort_val']).reset_index(drop=True)
+
+            st.markdown("---")
+            col_table, col_mol = st.columns([0.6, 0.4])
+            
+            with col_table:
+                st.markdown("### Assegnazione Segnali (Clicca una riga)")
+                event = st.dataframe(df_signals_display, use_container_width=True, selection_mode="single-row", on_select="rerun")
+            
+            selected_atoms, selected_delta, selected_mult = [], None, ""
+            if len(event.selection.rows) > 0:
+                idx = event.selection.rows[0]
+                row_data = df_signals_display.iloc[idx]
+                atomi_str = row_data['Atomi']
+                if atomi_str != "N/D": selected_atoms = [int(a) - 1 for a in atomi_str.split(", ")]
+                try: 
+                    selected_delta = float(row_data['Shift (ppm)'])
+                    selected_mult = row_data['Molteplicità']
+                except ValueError: selected_delta = None
+
+            with col_mol:
+                st.markdown("### Struttura")
+                fig_highlight = plt.figure(dpi=300, figsize=(5, 5))
+                ax_high = fig_highlight.add_subplot(111)
+                for atom in mol.GetAtoms(): atom.SetProp('atomNote', str(atom.GetIdx() + 1))
+                
+                # Identificazione legami per forzare il colore corretto su tutto il frammento
+                selected_bonds = []
+                if len(selected_atoms) > 1:
+                    for bond in mol.GetBonds():
+                        if bond.GetBeginAtomIdx() in selected_atoms and bond.GetEndAtomIdx() in selected_atoms:
+                            selected_bonds.append(bond.GetIdx())
+                
+                d2d_high = rdMolDraw2D.MolDraw2DCairo(1500, 1500)
+                opts = d2d_high.drawOptions()
+                opts.annotationFontScale = 0.9
+                
+                bordeaux_rgba = (107/255, 20/255, 34/255, 0.4)
+                highlight_dict = {a: bordeaux_rgba for a in selected_atoms}
+                highlight_bonds_dict = {b: bordeaux_rgba for b in selected_bonds}
+                
+                opts.setHighlightColour(bordeaux_rgba)
+                
+                d2d_high.DrawMolecule(mol, highlightAtoms=selected_atoms, highlightAtomColors=highlight_dict, highlightBonds=selected_bonds, highlightBondColors=highlight_bonds_dict)
+                d2d_high.FinishDrawing()
+                
+                ax_high.imshow(Image.open(io.BytesIO(d2d_high.GetDrawingText())))
+                ax_high.axis('off')
+                st.pyplot(fig_highlight)
+                plt.close(fig_highlight)
+
+            st.markdown("### Spettro")
+            fig_interattivo = go.Figure()
+            fig_interattivo.add_trace(go.Scatter(x=x_ppm, y=y_intensity, mode='lines', line=dict(color=BORDEAUX, width=1.5)))
+            if nmr_type == '13c' and tech in ["DEPT-135", "APT"]: fig_interattivo.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.3)
+            
+            if selected_delta is not None and nmr_type == '1h':
+                molt_factor = len(selected_mult) if len(selected_mult) > 0 else 1
+                width_box = (0.05 * molt_factor) * (500.0 / freq)
+                fig_interattivo.add_vrect(
+                    x0=selected_delta + width_box, x1=selected_delta - width_box,
+                    fillcolor=BORDEAUX, opacity=0.18, layer="above", line_width=1.5, line_color=BORDEAUX,
+                    annotation_text=f"{selected_delta:.2f} ppm ({selected_mult})", annotation_position="top left"
+                )
+            
+            fig_interattivo.update_layout(title=plot_title, xaxis_title="Chemical Shift (ppm)", yaxis_title="Intensità", xaxis=dict(autorange="reversed"), plot_bgcolor='white', hovermode='x', height=600, font=dict(family="Palatino, serif"))
+            fig_interattivo.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0')
+            fig_interattivo.update_yaxes(showgrid=True, gridwidth=1, gridcolor='#E0E0E0', showticklabels=False)
+            st.plotly_chart(fig_interattivo, use_container_width=True)
+
+            # Generazione PDF solo per le tecniche 1D
+            fig_main = plt.figure(dpi=300)
+            ax_spec = fig_main.add_subplot(111)
+            ax_spec.plot(x_ppm, y_intensity, color=BORDEAUX, linewidth=1.5)
+            if nmr_type == '13c' and tech in ["DEPT-135", "APT"]: ax_spec.axhline(0, color='black', linestyle='--', alpha=0.3)
+            ax_spec.set_xlim(x_range[1], x_range[0])
+            ax_spec.set_ylim(y_min, y_max)
+            ax_spec.set_xlabel('Chemical Shift (ppm)', fontsize=12)
+            ax_spec.set_ylabel('Intensità', fontsize=12)
+            ax_spec.set_title(plot_title, fontsize=14, fontweight='bold')
+            for sp in ['top', 'right']: ax_spec.spines[sp].set_visible(False)
+            salva_pagina_uniforme(pdf, fig_main)
+
+            if nmr_type == '1h' and len(segnali_visibili) > 0:
+                fig_zoom, axes = plt.subplots(1, len(segnali_visibili), dpi=300)
+                if len(segnali_visibili) == 1: axes = [axes]
+                signals_sorted = sorted(segnali_visibili, key=lambda x: float(x.get('delta', 0)), reverse=True)
+                for i, (ax, sig) in enumerate(zip(axes, signals_sorted)):
+                    delta = float(sig.get('delta', 1.0))
+                    ax.plot(x_ppm, y_intensity, color=BORDEAUX, linewidth=2.0) 
+                    molt_f = len(sig.get('multiplicity', 's'))
+                    width_zoom = 0.20 if sig.get('is_exchangeable', False) else ((0.03 * molt_f) * (500.0 / freq))
+                    ax.set_xlim(delta + width_zoom, delta - width_zoom)
+                    mask = (x_ppm >= delta - width_zoom) & (x_ppm <= delta + width_zoom)
+                    ax.set_ylim(0, (np.max(y_intensity[mask]) if np.any(mask) else 1) * 1.1)
+                    ax.set_title(f"{delta:.2f} ppm\n{sig.get('multiplicity', 's')}", fontsize=10)
+                    ax.get_yaxis().set_visible(False)
+                    for spine in ['top', 'right', 'left']: ax.spines[spine].set_visible(False)
+                salva_pagina_uniforme(pdf, fig_zoom)
+
+            st.markdown("---")
+            st.download_button("Download Report (PDF)", data=pdf_buffer.getvalue(), file_name="Report_NMR_1D.pdf", mime="application/pdf", use_container_width=True)
